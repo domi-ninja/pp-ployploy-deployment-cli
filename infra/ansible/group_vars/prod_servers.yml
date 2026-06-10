@@ -1,0 +1,38 @@
+---
+# Copy this file to a local inventory/group_vars file or override these values
+# with --extra-vars. Do not commit real secrets or private keys.
+
+admin_user: deploy
+admin_ssh_public_keys:
+  - "ssh-ed25519 REPLACE_WITH_YOUR_PUBLIC_KEY comment"
+
+ssh_port: 22
+ssh_password_authentication: false
+ssh_permit_root_login: "no"
+
+base_timezone: Etc/UTC
+system_upgrade: true
+swap_file_size_mb: 0
+
+ufw_allowed_tcp_ports:
+  - "{{ ssh_port }}"
+  - 80
+  - 443
+ufw_allowed_udp_ports: []
+
+docker_users:
+  - "{{ admin_user }}"
+
+# Optional Codeberg/Forgejo Actions runner.
+forgejo_runner_enabled: false
+forgejo_runner_registered: false
+forgejo_runner_name: codeberg-prod-1
+forgejo_runner_labels:
+  - "docker:docker://node:22-bookworm"
+  - "ubuntu-24.04:docker://ubuntu:24.04"
+
+# Optional Codeberg-hosted Woodpecker agent.
+woodpecker_agent_enabled: false
+woodpecker_agent_secret: ""
+woodpecker_agent_labels: {}
+

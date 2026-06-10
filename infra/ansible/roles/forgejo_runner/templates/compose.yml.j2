@@ -1,0 +1,24 @@
+services:
+  docker-in-docker:
+    image: {{ forgejo_runner_dind_image }}
+    privileged: true
+    command:
+      - dockerd
+      - -H
+      - tcp://0.0.0.0:2375
+      - --tls=false
+    restart: unless-stopped
+
+  runner:
+    image: {{ forgejo_runner_image }}
+    depends_on:
+      - docker-in-docker
+    environment:
+      DOCKER_HOST: tcp://docker-in-docker:2375
+    user: "1001:1001"
+    volumes:
+      - {{ forgejo_runner_data_dir }}:/data
+    restart: unless-stopped
+    command: >-
+      /bin/sh -c "{% if forgejo_runner_registered | bool %}sleep 5; forgejo-runner daemon --config /data/.runner{% else %}sleep infinity{% endif %}"
+

@@ -1,0 +1,175 @@
+---
+- name: Assert supported operating system
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == "Ubuntu"
+      - ansible_distribution_major_version | int >= 22
+    fail_msg: "This playbook is intended for Ubuntu 22.04 or newer."
+
+- name: Refuse to disable SSH passwords without an admin SSH key
+  ansible.builtin.assert:
+    that:
+      - admin_ssh_public_keys | length > 0
+    fail_msg: "Set admin_ssh_public_keys before disabling SSH password authentication."
+  when: not ssh_password_authentication | bool
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Upgrade installed packages
+  ansible.builtin.apt:
+    upgrade: dist
+  when: system_upgrade | bool
+
+- name: Install baseline packages
+  ansible.builtin.apt:
+    name: "{{ base_packages }}"
+    state: present
+
+- name: Set system timezone
+  community.general.timezone:
+    name: "{{ base_timezone }}"
+  ignore_errors: true
+  register: timezone_result
+
+- name: Set system timezone with timedatectl fallback
+  ansible.builtin.command: "timedatectl set-timezone {{ base_timezone }}"
+  changed_when: false
+  when: timezone_result is failed
+
+- name: Create admin user
+  ansible.builtin.user:
+    name: "{{ admin_user }}"
+    groups: "{{ admin_groups }}"
+    append: true
+    shell: "{{ admin_shell }}"
+    create_home: true
+    state: present
+
+- name: Install admin SSH authorized keys
+  ansible.posix.authorized_key:
+    user: "{{ admin_user }}"
+    key: "{{ item }}"
+    state: present
+  loop: "{{ admin_ssh_public_keys }}"
+
+- name: Allow passwordless sudo for admin user
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/90-{{ admin_user }}"
+    content: "{{ admin_user }} ALL=(ALL) NOPASSWD:ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+
+- name: Install SSH hardening config
+  ansible.builtin.template:
+    src: sshd-hardening.conf.j2
+    dest: /etc/ssh/sshd_config.d/99-prod-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload sshd
+
+- name: Install unattended-upgrades auto config
+  ansible.builtin.template:
+    src: 20auto-upgrades.j2
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install unattended-upgrades local policy
+  ansible.builtin.template:
+    src: 52unattended-upgrades-local.j2
+    dest: /etc/apt/apt.conf.d/52unattended-upgrades-local
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Create journald config directory
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install journald retention config
+  ansible.builtin.template:
+    src: journald-prod.conf.j2
+    dest: /etc/systemd/journald.conf.d/99-prod.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart journald
+
+- name: Install sysctl hardening config
+  ansible.builtin.template:
+    src: sysctl-prod.conf.j2
+    dest: /etc/sysctl.d/99-prod-server.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload sysctl
+
+- name: Install fail2ban jail config
+  ansible.builtin.template:
+    src: fail2ban-sshd.local.j2
+    dest: /etc/fail2ban/jail.d/sshd.local
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart fail2ban
+
+- name: Ensure fail2ban is enabled
+  ansible.builtin.service:
+    name: fail2ban
+    enabled: true
+    state: started
+
+- name: Create swap file when requested
+  ansible.builtin.command: "fallocate -l {{ swap_file_size_mb }}M {{ swap_file_path }}"
+  args:
+    creates: "{{ swap_file_path }}"
+  when: swap_file_size_mb | int > 0
+  notify: enable swap file
+
+- name: Secure swap file permissions
+  ansible.builtin.file:
+    path: "{{ swap_file_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  when: swap_file_size_mb | int > 0
+
+- name: Persist swap file in fstab
+  ansible.builtin.mount:
+    name: none
+    src: "{{ swap_file_path }}"
+    fstype: swap
+    opts: sw
+    passno: "0"
+    dump: "0"
+    state: present
+  when: swap_file_size_mb | int > 0
+
+- name: Allow configured TCP ports through UFW
+  ansible.builtin.command: "ufw allow {{ item }}/tcp"
+  register: ufw_tcp_result
+  changed_when: "'Rules updated' in ufw_tcp_result.stdout"
+  loop: "{{ ufw_allowed_tcp_ports }}"
+
+- name: Allow configured UDP ports through UFW
+  ansible.builtin.command: "ufw allow {{ item }}/udp"
+  register: ufw_udp_result
+  changed_when: "'Rules updated' in ufw_udp_result.stdout"
+  loop: "{{ ufw_allowed_udp_ports }}"
+
+- name: Enable UFW
+  ansible.builtin.command: ufw --force enable
+  register: ufw_enable_result
+  changed_when: "'Firewall is active and enabled' in ufw_enable_result.stdout"
+

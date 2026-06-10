@@ -1,0 +1,49 @@
+---
+admin_user: deploy
+admin_groups:
+  - sudo
+admin_ssh_public_keys: []
+admin_shell: /bin/bash
+
+ssh_port: 22
+ssh_password_authentication: false
+ssh_permit_root_login: "no"
+
+base_timezone: Etc/UTC
+system_upgrade: true
+swap_file_size_mb: 0
+swap_file_path: /swapfile
+
+base_packages:
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - fail2ban
+  - git
+  - gnupg
+  - htop
+  - jq
+  - lsb-release
+  - needrestart
+  - python3
+  - python3-apt
+  - rsync
+  - sudo
+  - ufw
+  - unattended-upgrades
+  - vim
+
+ufw_allowed_tcp_ports:
+  - "{{ ssh_port }}"
+ufw_allowed_udp_ports: []
+
+fail2ban_bantime: 1h
+fail2ban_findtime: 10m
+fail2ban_maxretry: 5
+
+journald_system_max_use: 1G
+journald_max_retention_sec: 1month
+
+unattended_reboot: true
+unattended_reboot_time: "03:30"
+

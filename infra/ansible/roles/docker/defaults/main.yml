@@ -1,0 +1,17 @@
+---
+docker_users: []
+docker_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+  - docker-compose-plugin
+
+docker_daemon_config:
+  log-driver: json-file
+  log-opts:
+    max-size: 50m
+    max-file: "5"
+  live-restore: true
+  userland-proxy: false
+

@@ -1,0 +1,12 @@
+---
+- name: Provision Ubuntu production server
+  hosts: prod_servers
+  become: true
+  roles:
+    - role: base
+    - role: docker
+    - role: forgejo_runner
+      when: forgejo_runner_enabled | bool
+    - role: woodpecker_agent
+      when: woodpecker_agent_enabled | bool
+
