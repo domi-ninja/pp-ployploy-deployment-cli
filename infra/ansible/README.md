@@ -4,8 +4,8 @@ This Ansible stack provisions an Ubuntu 22.04+ host with a practical production 
 
 - Non-root sudo admin user with SSH keys.
 - SSH hardening with password login disabled by default.
-- UFW firewall, fail2ban, unattended security updates, journald retention, and basic sysctl hardening.
-- Docker Engine and the Docker Compose plugin from Docker's official Ubuntu repository.
+- UFW firewall with default-deny inbound policy, fail2ban, unattended security updates, chrony time sync, logrotate, journald retention, and basic sysctl hardening.
+- Docker Engine, the Docker Compose plugin, and a `docker-compose` compatibility command.
 - Optional compose-managed Forgejo Actions runner for Codeberg.
 - Optional compose-managed Woodpecker agent for Codeberg-hosted Woodpecker.
 
@@ -22,7 +22,7 @@ infra/ansible/
 
 ## First run
 
-Install Ansible on your workstation, then create a local inventory from the example:
+Install Ansible on your workstation, then create a local inventory from the example. The playbook uses Ansible core modules only.
 
 ```sh
 cd infra/ansible
@@ -98,4 +98,3 @@ The Woodpecker agent uses `/var/run/docker.sock`. Only use this on hosts where t
 - Keep real secrets in Ansible Vault or ignored local vars files.
 - Running CI jobs executes remote code. Use dedicated hosts or VMs per trust boundary.
 - If you change `ssh_port`, update `ufw_allowed_tcp_ports` at the same time.
-

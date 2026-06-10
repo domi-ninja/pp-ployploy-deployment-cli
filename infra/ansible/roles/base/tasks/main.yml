@@ -28,16 +28,14 @@
     name: "{{ base_packages }}"
     state: present
 
-- name: Set system timezone
-  community.general.timezone:
-    name: "{{ base_timezone }}"
-  ignore_errors: true
-  register: timezone_result
-
-- name: Set system timezone with timedatectl fallback
-  ansible.builtin.command: "timedatectl set-timezone {{ base_timezone }}"
+- name: Read current timezone
+  ansible.builtin.command: timedatectl show --property=Timezone --value
+  register: current_timezone
   changed_when: false
-  when: timezone_result is failed
+
+- name: Set system timezone
+  ansible.builtin.command: "timedatectl set-timezone {{ base_timezone }}"
+  when: current_timezone.stdout != base_timezone
 
 - name: Create admin user
   ansible.builtin.user:
@@ -48,11 +46,30 @@
     create_home: true
     state: present
 
+- name: Create admin SSH directory
+  ansible.builtin.file:
+    path: "/home/{{ admin_user }}/.ssh"
+    state: directory
+    owner: "{{ admin_user }}"
+    group: "{{ admin_user }}"
+    mode: "0700"
+
+- name: Create admin authorized_keys file
+  ansible.builtin.file:
+    path: "/home/{{ admin_user }}/.ssh/authorized_keys"
+    state: touch
+    owner: "{{ admin_user }}"
+    group: "{{ admin_user }}"
+    mode: "0600"
+
 - name: Install admin SSH authorized keys
-  ansible.posix.authorized_key:
-    user: "{{ admin_user }}"
-    key: "{{ item }}"
+  ansible.builtin.lineinfile:
+    path: "/home/{{ admin_user }}/.ssh/authorized_keys"
+    line: "{{ item }}"
     state: present
+    owner: "{{ admin_user }}"
+    group: "{{ admin_user }}"
+    mode: "0600"
   loop: "{{ admin_ssh_public_keys }}"
 
 - name: Allow passwordless sudo for admin user
@@ -88,6 +105,27 @@
     owner: root
     group: root
     mode: "0644"
+
+- name: Enable unattended-upgrades service
+  ansible.builtin.service:
+    name: unattended-upgrades
+    enabled: true
+    state: started
+
+- name: Enable apt periodic timers
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - apt-daily.timer
+    - apt-daily-upgrade.timer
+
+- name: Enable chrony time sync
+  ansible.builtin.service:
+    name: chrony
+    enabled: true
+    state: started
 
 - name: Create journald config directory
   ansible.builtin.file:
@@ -129,6 +167,21 @@
     name: fail2ban
     enabled: true
     state: started
+
+- name: Set UFW default incoming policy
+  ansible.builtin.command: "ufw default {{ ufw_default_incoming_policy }} incoming"
+  register: ufw_default_incoming_result
+  changed_when: "'changed' in ufw_default_incoming_result.stdout"
+
+- name: Set UFW default outgoing policy
+  ansible.builtin.command: "ufw default {{ ufw_default_outgoing_policy }} outgoing"
+  register: ufw_default_outgoing_result
+  changed_when: "'changed' in ufw_default_outgoing_result.stdout"
+
+- name: Enable UFW logging
+  ansible.builtin.command: "ufw logging {{ ufw_logging }}"
+  register: ufw_logging_result
+  changed_when: "'Logging enabled' in ufw_logging_result.stdout or 'Logging disabled' in ufw_logging_result.stdout"
 
 - name: Create swap file when requested
   ansible.builtin.command: "fallocate -l {{ swap_file_size_mb }}M {{ swap_file_path }}"
@@ -172,4 +225,3 @@
   ansible.builtin.command: ufw --force enable
   register: ufw_enable_result
   changed_when: "'Firewall is active and enabled' in ufw_enable_result.stdout"
-

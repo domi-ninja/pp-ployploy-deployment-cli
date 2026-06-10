@@ -15,14 +15,18 @@ swap_file_size_mb: 0
 swap_file_path: /swapfile
 
 base_packages:
+  - apparmor
+  - apparmor-utils
   - apt-transport-https
   - ca-certificates
+  - chrony
   - curl
   - fail2ban
   - git
   - gnupg
   - htop
   - jq
+  - logrotate
   - lsb-release
   - needrestart
   - python3
@@ -36,14 +40,20 @@ base_packages:
 ufw_allowed_tcp_ports:
   - "{{ ssh_port }}"
 ufw_allowed_udp_ports: []
+ufw_default_incoming_policy: deny
+ufw_default_outgoing_policy: allow
+ufw_logging: "on"
 
 fail2ban_bantime: 1h
 fail2ban_findtime: 10m
 fail2ban_maxretry: 5
+fail2ban_backend: systemd
+fail2ban_ignoreip:
+  - 127.0.0.1/8
+  - ::1
 
 journald_system_max_use: 1G
 journald_max_retention_sec: 1month
 
 unattended_reboot: true
 unattended_reboot_time: "03:30"
-

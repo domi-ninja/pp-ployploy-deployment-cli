@@ -45,6 +45,16 @@
     name: "{{ docker_packages }}"
     state: present
 
+- name: Install docker-compose compatibility wrapper
+  ansible.builtin.copy:
+    dest: /usr/local/bin/docker-compose
+    content: |
+      #!/bin/sh
+      exec docker compose "$@"
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: Install Docker daemon config
   ansible.builtin.template:
     src: daemon.json.j2
@@ -67,4 +77,3 @@
     name: docker
     enabled: true
     state: started
-
