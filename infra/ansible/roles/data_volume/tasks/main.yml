@@ -1,0 +1,32 @@
+---
+- name: Require a data volume source
+  ansible.builtin.assert:
+    that:
+      - data_volume_src | length > 0
+      - data_volume_path | length > 1
+    fail_msg: "Set data_volume_src and data_volume_path before enabling data_volume."
+
+- name: Create data mount point
+  ansible.builtin.file:
+    path: "{{ data_volume_path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Remove previous data volume mount points
+  ansible.builtin.mount:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ data_volume_previous_mountpoints }}"
+  when: item != data_volume_path
+
+- name: Mount data volume
+  ansible.builtin.mount:
+    path: "{{ data_volume_path }}"
+    src: "{{ data_volume_src }}"
+    fstype: "{{ data_volume_fstype }}"
+    opts: "{{ data_volume_opts }}"
+    dump: "0"
+    passno: "0"
+    state: mounted
