@@ -253,6 +253,16 @@
   delay: 5
   until: coolify_http_check.status in [200, 302, 303, 307, 308]
 
+- name: Check Coolify proxy compose file
+  ansible.builtin.stat:
+    path: "{{ coolify_proxy_compose_file }}"
+  register: coolify_proxy_compose
+
+- name: Recreate Coolify proxy to refresh Docker socket bind
+  ansible.builtin.command: "docker compose -f {{ coolify_proxy_compose_file }} up -d --force-recreate"
+  changed_when: true
+  when: coolify_proxy_compose.stat.exists
+
 - name: Count Coolify users
   ansible.builtin.command:
     argv:

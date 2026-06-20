@@ -8,6 +8,7 @@ This Ansible stack provisions an Ubuntu 22.04+ host with a practical production 
 - Docker Engine, the Docker Compose plugin, and a `docker-compose` compatibility command.
 - Optional persistent data volume mounted at `/data`.
 - Optional Coolify install using Coolify's documented Docker Compose layout under `/data/coolify`.
+- Optional Forgejo install using Docker Compose under `/data/forgejo`.
 - Optional compose-managed Forgejo Actions runner for Codeberg.
 - Optional compose-managed Woodpecker agent for Codeberg-hosted Woodpecker.
 
@@ -58,6 +59,7 @@ ssh deploy@SERVER_IP
 | `data_volume_enabled` | `false` | Mounts an attached block volume, normally at `/data`. |
 | `docker_data_root_enabled` | `false` | Moves Docker's data root to `docker_data_root_path`, normally `/data/docker`. |
 | `coolify_enabled` | `false` | Installs and starts Coolify from `/data/coolify/source`. |
+| `forgejo_enabled` | `false` | Installs and starts Forgejo from `/data/forgejo`. |
 
 ## Coolify
 
@@ -97,6 +99,28 @@ For `p3.domi.ninja`, the real deployment values are kept in ignored local files:
 
 - `infra/ansible/inventory/prod.local.yml`
 - `infra/ansible/host_vars/p3.yml`
+
+## Forgejo
+
+Enable Forgejo in ignored host vars:
+
+```yaml
+ufw_allowed_tcp_ports:
+  - 22
+  - 80
+  - 443
+  - 2222
+
+forgejo_enabled: true
+forgejo_domain: git.example.com
+forgejo_root_url: "https://git.example.com/"
+forgejo_ssh_port: "2222"
+forgejo_admin_create_enabled: true
+forgejo_admin_username: "admin"
+forgejo_admin_email: "admin@example.com"
+```
+
+Keep `forgejo_db_password`, `forgejo_secret_key`, `forgejo_internal_token`, `forgejo_lfs_jwt_secret`, `forgejo_oauth2_jwt_secret`, and `forgejo_admin_password` in an ignored credentials file. The Forgejo role stores application and database data under `/data/forgejo`, exposes HTTP through the existing Coolify Traefik proxy, and exposes Git SSH on the configured high port.
 
 ## Forgejo Actions runner
 

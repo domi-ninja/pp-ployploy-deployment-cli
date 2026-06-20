@@ -39,6 +39,13 @@ data_volume_previous_mountpoints: []
 coolify_enabled: false
 coolify_app_url: ""
 
+# Optional Forgejo server. Keep host-specific domains and secrets in ignored
+# host vars files.
+forgejo_enabled: false
+forgejo_domain: ""
+forgejo_root_url: ""
+forgejo_ssh_port: "2222"
+
 # Optional Codeberg/Forgejo Actions runner.
 forgejo_runner_enabled: false
 forgejo_runner_registered: false

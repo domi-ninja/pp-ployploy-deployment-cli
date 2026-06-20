@@ -1,0 +1,4 @@
+---
+- name: restart forgejo
+  ansible.builtin.command: "docker compose -f {{ forgejo_compose_dir }}/compose.yml up -d --remove-orphans"
+  changed_when: true

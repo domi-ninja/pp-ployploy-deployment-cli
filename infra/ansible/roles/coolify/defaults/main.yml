@@ -2,6 +2,7 @@
 coolify_enabled: false
 coolify_base_dir: /data/coolify
 coolify_source_dir: "{{ coolify_base_dir }}/source"
+coolify_proxy_compose_file: "{{ coolify_base_dir }}/proxy/docker-compose.yml"
 coolify_app_url: ""
 coolify_app_port: "8000"
 coolify_proxy_ui_enabled: false
