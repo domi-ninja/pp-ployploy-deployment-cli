@@ -95,6 +95,16 @@ coolify_admin_password: "use-a-generated-secret"
 
 The Coolify role stores persistent data in `/data/coolify`, keeps Docker state in `/data/docker` when `docker_data_root_enabled` is true, and installs a Traefik dynamic route so the Coolify UI is reachable through the Coolify proxy on ports 80/443.
 
+Existing Coolify application records can be kept aligned with local vars:
+
+```yaml
+coolify_application_overrides:
+  - uuid: hgtso9vjh2pf9lmp916mgta6
+    git_repository: "https://git.example.com/owner/repo.git"
+    git_branch: main
+    fqdn: "https://app.example.com"
+```
+
 For `p3.domi.ninja`, the real deployment values are kept in ignored local files:
 
 - `infra/ansible/inventory/prod.local.yml`

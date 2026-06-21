@@ -345,3 +345,30 @@
   register: coolify_default_project
   changed_when: false
   when: coolify_default_project_enabled | bool
+
+- name: Apply configured Coolify application overrides
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -e
+      - "COOLIFY_APP_UUID={{ item.uuid }}"
+      - -e
+      - "COOLIFY_APP_GIT_REPOSITORY={{ item.git_repository | default('') }}"
+      - -e
+      - "COOLIFY_APP_GIT_BRANCH={{ item.git_branch | default('') }}"
+      - -e
+      - "COOLIFY_APP_FQDN={{ item.fqdn | default('') }}"
+      - coolify
+      - php
+      - artisan
+      - tinker
+      - >-
+        --execute=$app = \App\Models\Application::where('uuid', getenv('COOLIFY_APP_UUID'))->firstOrFail(); $changed = false; foreach (['git_repository' => 'COOLIFY_APP_GIT_REPOSITORY', 'git_branch' => 'COOLIFY_APP_GIT_BRANCH', 'fqdn' => 'COOLIFY_APP_FQDN'] as $field => $env) { $value = getenv($env); if ($value !== false && $value !== '' && $app->{$field} !== $value) { $app->{$field} = $value; $changed = true; } } if ($changed) { $app->save(); echo 'changed'; } else { echo 'ok'; }
+  register: coolify_application_override_results
+  changed_when: "'changed' in coolify_application_override_results.stdout"
+  loop: "{{ coolify_application_overrides }}"
+  loop_control:
+    label: "{{ item.uuid }}"
+  tags:
+    - coolify_application_overrides

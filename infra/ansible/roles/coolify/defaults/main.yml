@@ -13,6 +13,7 @@ coolify_admin_email: ""
 coolify_admin_password: ""
 coolify_default_project_enabled: false
 coolify_default_project_name: "Default"
+coolify_application_overrides: []
 coolify_cdn_base_url: https://cdn.coollabs.io/coolify
 coolify_compose_files:
   - docker-compose.yml
