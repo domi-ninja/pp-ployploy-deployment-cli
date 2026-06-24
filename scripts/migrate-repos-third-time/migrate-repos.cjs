@@ -207,6 +207,29 @@ function forgejoSshUrl(repoName) {
   return `ssh://git@${FORGEJO_HOST}:${FORGEJO_SSH_PORT}/${FORGEJO_OWNER}/${repoName}.git`;
 }
 
+function listLocalBranches(repoPath) {
+  return runGit(repoPath, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])
+    .split('\n')
+    .map((branch) => branch.trim())
+    .filter(Boolean);
+}
+
+function setForgejoBranchUpstreams(repoPath) {
+  const branches = listLocalBranches(repoPath);
+  if (branches.length === 0) {
+    console.log('    no local branches found');
+    return;
+  }
+
+  console.log(`    fetch ${REMOTE_NAME}`);
+  spawnGit(repoPath, ['fetch', REMOTE_NAME, '--prune']);
+
+  for (const branch of branches) {
+    console.log(`    set ${branch} -> ${REMOTE_NAME}/${branch}`);
+    spawnGit(repoPath, ['branch', `--set-upstream-to=${REMOTE_NAME}/${branch}`, branch]);
+  }
+}
+
 async function requestJson(method, endpoint, body) {
   const url = `${FORGEJO_API_BASE}${endpoint}`;
   const response = await fetch(url, {
@@ -290,6 +313,7 @@ async function migrateRepo(repoPath) {
   const upstreamUrl = tryGit(repoPath, ['remote', 'get-url', REMOTE_NAME]);
   if (upstreamUrl && isForgejoSshUpstream(upstreamUrl)) {
     console.log(`  skip: ${REMOTE_NAME} already points to Forgejo SSH (${upstreamUrl})`);
+    setForgejoBranchUpstreams(repoPath);
     return 'skipped';
   }
 
@@ -315,6 +339,7 @@ async function migrateRepo(repoPath) {
 
   console.log(`    push all branches to ${REMOTE_NAME}`);
   spawnGit(repoPath, ['push', REMOTE_NAME, '--all']);
+  setForgejoBranchUpstreams(repoPath);
 
   return 'migrated';
 }
