@@ -1,0 +1,47 @@
+---
+- name: Install Caddy
+  ansible.builtin.apt:
+    name: caddy
+    state: present
+    update_cache: true
+
+- name: Create pp proxy routes directory
+  ansible.builtin.file:
+    path: "{{ reverse_proxy_routes_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Ensure wildcard import has at least one route file
+  ansible.builtin.copy:
+    dest: "{{ reverse_proxy_routes_dir }}/00-empty.caddy"
+    content: "# pp-managed routes are written beside this file.\n"
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+
+- name: Configure Caddyfile
+  ansible.builtin.template:
+    src: Caddyfile.j2
+    dest: /etc/caddy/Caddyfile
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload caddy
+
+- name: Stop Coolify Traefik proxy when pp owns edge ports
+  ansible.builtin.command: docker stop coolify-proxy
+  register: reverse_proxy_stop_coolify_proxy_result
+  changed_when: "'coolify-proxy' in reverse_proxy_stop_coolify_proxy_result.stdout"
+  failed_when:
+    - reverse_proxy_stop_coolify_proxy_result.rc != 0
+    - "'No such container' not in reverse_proxy_stop_coolify_proxy_result.stderr"
+  when: reverse_proxy_stop_coolify_proxy | bool
+
+- name: Enable and start Caddy
+  ansible.builtin.systemd:
+    name: caddy
+    enabled: true
+    state: started

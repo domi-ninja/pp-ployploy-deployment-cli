@@ -12,6 +12,11 @@ func TestRenderBundleWritesComposeAndEnv(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, ".env.prod", "DATABASE_URL=postgres://example\nSESSION_SECRET=secret\nQUEUE_URL=redis://example\n")
 	cfg := validConfig()
+	cfg.Routes = []Route{{
+		Host:    "quotes.example.com",
+		Service: "web",
+		Target:  "http://127.0.0.1:443",
+	}}
 	git := GitMetadata{SHA: "abcdef1234567890", ShortSHA: "abcdef1", Dirty: true, DiffDigest: "digest"}
 	plan := BuildPlan(cfg, git, time.Date(2026, 6, 28, 10, 0, 0, 0, time.UTC))
 
@@ -49,6 +54,15 @@ func TestRenderBundleWritesComposeAndEnv(t *testing.T) {
 	envText := string(env)
 	if !strings.Contains(envText, "DATABASE_URL=postgres://example\n") || !strings.Contains(envText, "SESSION_SECRET=secret\n") {
 		t.Fatalf("unexpected env file:\n%s", envText)
+	}
+
+	routes, err := os.ReadFile(filepath.Join(bundle.Root, "hosts", "app-01", "routes.caddy"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	routeText := string(routes)
+	if !strings.Contains(routeText, "quotes.example.com {\n\treverse_proxy http://127.0.0.1:443\n}") {
+		t.Fatalf("unexpected route file:\n%s", routeText)
 	}
 }
 

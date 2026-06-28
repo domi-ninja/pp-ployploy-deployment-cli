@@ -17,6 +17,7 @@ type Config struct {
 	Build      Build              `yaml:"build"`
 	Hosts      map[string]Host    `yaml:"hosts"`
 	Services   map[string]Service `yaml:"services"`
+	Routes     []Route            `yaml:"routes"`
 	Volumes    map[string]Volume  `yaml:"volumes"`
 	Migrations *Migration         `yaml:"migrations"`
 	Checks     map[string][]Check `yaml:"checks"`
@@ -54,6 +55,13 @@ type Service struct {
 	Ports      []Port        `yaml:"ports"`
 	Volumes    []VolumeMount `yaml:"volumes"`
 	Health     Health        `yaml:"health"`
+}
+
+type Route struct {
+	Host    string `yaml:"host"`
+	Service string `yaml:"service"`
+	Target  string `yaml:"target"`
+	HostID  string `yaml:"host_id"`
 }
 
 type EnvSpec struct {
@@ -206,6 +214,25 @@ func ValidateConfig(root string, cfg Config) error {
 		}
 	}
 
+	for i, route := range cfg.Routes {
+		field := fmt.Sprintf("routes[%d]", i)
+		require(&problems, field+".host", route.Host)
+		require(&problems, field+".service", route.Service)
+		if _, ok := cfg.Services[route.Service]; route.Service != "" && !ok {
+			problems = append(problems, field+".service references unknown service "+route.Service)
+		}
+		if route.Target == "" {
+			problems = append(problems, field+".target is required")
+		} else if err := validateRouteTarget(route.Target); err != nil {
+			problems = append(problems, field+".target "+err.Error())
+		}
+		if route.HostID != "" {
+			if _, ok := cfg.Hosts[route.HostID]; !ok {
+				problems = append(problems, field+".host_id references unknown host "+route.HostID)
+			}
+		}
+	}
+
 	for volumeID := range cfg.Volumes {
 		validateSlug(&problems, "volumes."+volumeID, volumeID)
 	}
@@ -273,6 +300,20 @@ func validateLocalURL(rawURL string) error {
 	}
 	if parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "localhost" {
 		return fmt.Errorf("must point to localhost or 127.0.0.1")
+	}
+	return nil
+}
+
+func validateRouteTarget(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("must be a valid URL")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("must use http or https")
+	}
+	if parsed.Host == "" {
+		return fmt.Errorf("must include host")
 	}
 	return nil
 }

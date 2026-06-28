@@ -3,6 +3,7 @@ package deploy
 import (
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -70,7 +71,7 @@ func (d Deployer) Deploy() error {
 	}
 
 	fmt.Fprintln(d.Out, "applying hosts")
-	if err := d.ApplyBundle(plan, bundle); err != nil {
+	if err := d.ApplyRelease(plan, bundle); err != nil {
 		record.Status = "failed"
 		record.Apply = StepRecord{Status: "failed", Error: err.Error(), At: time.Now().UTC()}
 		_ = SaveRelease(d.Root, record)
@@ -80,7 +81,7 @@ func (d Deployer) Deploy() error {
 			previous, loadErr := LoadRelease(d.Root, state.CurrentReleaseID)
 			if loadErr != nil {
 				rollbackErrors = append(rollbackErrors, loadErr.Error())
-			} else if rollbackErr := d.ApplyBundle(planForRecord(plan, previous), bundleFromRecord(previous)); rollbackErr != nil {
+			} else if rollbackErr := d.ApplyRelease(planForRecord(plan, previous), bundleFromRecord(previous)); rollbackErr != nil {
 				rollbackErrors = append(rollbackErrors, rollbackErr.Error())
 			}
 		}
@@ -187,6 +188,13 @@ func (d Deployer) ApplyBundle(plan Plan, bundle Bundle) error {
 	return nil
 }
 
+func (d Deployer) ApplyRelease(plan Plan, bundle Bundle) error {
+	if err := d.ApplyBundle(plan, bundle); err != nil {
+		return err
+	}
+	return d.ApplyRoutes(plan, bundle)
+}
+
 func (d Deployer) UploadHostBundle(host HostBundle, imageTar string) error {
 	if err := d.Remote(host.SSH, "mkdir -p "+shellQuote(host.RemoteDir)+"/env "+shellQuote(host.RemoteDir)+"/images"); err != nil {
 		return err
@@ -194,12 +202,34 @@ func (d Deployer) UploadHostBundle(host HostBundle, imageTar string) error {
 	if err := d.Copy(host.Compose, host.SSH, host.RemoteDir+"/compose.yml"); err != nil {
 		return err
 	}
+	if host.Routes != "" {
+		if err := d.Copy(host.Routes, host.SSH, host.RemoteDir+"/routes.caddy"); err != nil {
+			return err
+		}
+	}
 	for _, envFile := range host.EnvFiles {
 		if err := d.Copy(envFile, host.SSH, host.RemoteDir+"/env/"+filepath.Base(envFile)); err != nil {
 			return err
 		}
 	}
 	return d.Copy(imageTar, host.SSH, host.RemoteDir+"/images/"+filepath.Base(imageTar))
+}
+
+func (d Deployer) ApplyRoutes(plan Plan, bundle Bundle) error {
+	for _, host := range bundle.Hosts {
+		if host.Routes == "" {
+			continue
+		}
+		fmt.Fprintf(d.Out, "host %s: caddy route\n", host.ID)
+		routePath := "/etc/pp/proxy/routes/" + plan.Config.Project.Name + ".caddy"
+		command := "mkdir -p /etc/pp/proxy/routes && install -m 0644 " +
+			shellQuote(host.RemoteDir+"/routes.caddy") + " " + shellQuote(routePath) +
+			" && caddy reload --config /etc/caddy/Caddyfile"
+		if err := d.Remote(host.SSH, command); err != nil {
+			return fmt.Errorf("host %s caddy reload: %w", host.ID, err)
+		}
+	}
+	return nil
 }
 
 func (d Deployer) Remote(sshTarget string, command string) error {
@@ -268,7 +298,7 @@ func (d Deployer) Rollback() error {
 
 	bundle := bundleFromRecord(previous)
 	fmt.Fprintf(d.Out, "rolling back to %s\n", previous.ReleaseID)
-	if err := d.ApplyBundle(planForRecord(plan, previous), bundle); err != nil {
+	if err := d.ApplyRelease(planForRecord(plan, previous), bundle); err != nil {
 		return err
 	}
 
@@ -326,6 +356,7 @@ func bundleFromRecord(record ReleaseRecord) Bundle {
 			SSH:        host.SSH,
 			Path:       hostPath,
 			Compose:    filepath.Join(hostPath, "compose.yml"),
+			Routes:     existingFile(filepath.Join(hostPath, "routes.caddy")),
 			EnvFiles:   envFiles,
 			RemoteDir:  host.RemoteDir,
 			ServiceIDs: host.Services,
@@ -350,4 +381,13 @@ func emptyDash(value string) string {
 		return "-"
 	}
 	return value
+}
+
+func existingFile(path string) string {
+	if path != "" {
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			return path
+		}
+	}
+	return ""
 }

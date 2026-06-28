@@ -52,6 +52,7 @@ type HostBundle struct {
 	SSH        string
 	Path       string
 	Compose    string
+	Routes     string
 	EnvFiles   []string
 	RemoteDir  string
 	ServiceIDs []string
@@ -118,12 +119,17 @@ func RenderBundle(root string, plan Plan) (Bundle, error) {
 		if err := writeYAML(composePath, compose); err != nil {
 			return Bundle{}, err
 		}
+		routesPath, err := renderCaddyRoutes(hostDir, plan, hostPlan.ID)
+		if err != nil {
+			return Bundle{}, err
+		}
 
 		bundle.Hosts = append(bundle.Hosts, HostBundle{
 			ID:         hostPlan.ID,
 			SSH:        hostPlan.SSH,
 			Path:       hostDir,
 			Compose:    composePath,
+			Routes:     routesPath,
 			EnvFiles:   envFiles,
 			RemoteDir:  remoteReleaseDir(plan.Config.Project.Name, plan.ReleaseID),
 			ServiceIDs: hostPlan.Services,
@@ -131,6 +137,37 @@ func RenderBundle(root string, plan Plan) (Bundle, error) {
 	}
 
 	return bundle, nil
+}
+
+func renderCaddyRoutes(hostDir string, plan Plan, hostID string) (string, error) {
+	var body strings.Builder
+	for _, route := range plan.Config.Routes {
+		if !routeBelongsToHost(plan.Config, route, hostID) {
+			continue
+		}
+		body.WriteString(route.Host)
+		body.WriteString(" {\n")
+		body.WriteString("\treverse_proxy ")
+		body.WriteString(route.Target)
+		body.WriteString("\n")
+		body.WriteString("}\n\n")
+	}
+	if body.Len() == 0 {
+		return "", nil
+	}
+	path := filepath.Join(hostDir, "routes.caddy")
+	if err := os.WriteFile(path, []byte(body.String()), 0644); err != nil {
+		return "", fmt.Errorf("write caddy routes: %w", err)
+	}
+	return path, nil
+}
+
+func routeBelongsToHost(cfg Config, route Route, hostID string) bool {
+	if route.HostID != "" {
+		return route.HostID == hostID
+	}
+	service, ok := cfg.Services[route.Service]
+	return ok && contains(service.Hosts, hostID)
 }
 
 func renderComposeService(plan Plan, serviceID string, service Service, vars RenderVars, envFile string) ComposeService {

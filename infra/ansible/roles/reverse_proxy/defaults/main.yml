@@ -1,0 +1,4 @@
+---
+reverse_proxy_email: "admin@example.com"
+reverse_proxy_routes_dir: /etc/pp/proxy/routes
+reverse_proxy_stop_coolify_proxy: false

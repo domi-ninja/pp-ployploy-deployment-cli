@@ -60,6 +60,30 @@ func TestValidateConfigRequiresMigrationRollback(t *testing.T) {
 	}
 }
 
+func TestValidateConfigRejectsInvalidRoute(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, ".env.prod", "DATABASE_URL=postgres://example\nSESSION_SECRET=secret\nQUEUE_URL=redis://example\n")
+
+	cfg := validConfig()
+	cfg.Routes = []Route{{
+		Host:    "quotes.example.com",
+		Service: "missing",
+		Target:  "tcp://127.0.0.1:8080",
+	}}
+
+	err := ValidateConfig(root, cfg)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "routes[0].service references unknown service missing") {
+		t.Fatalf("expected route service error, got %s", msg)
+	}
+	if !strings.Contains(msg, "routes[0].target must use http or https") {
+		t.Fatalf("expected route target error, got %s", msg)
+	}
+}
+
 func TestLoadEnvFileTrimsQuotes(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, ".env", "A='one'\nB=\"two\"\n")
