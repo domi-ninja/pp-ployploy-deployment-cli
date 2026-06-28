@@ -35,7 +35,7 @@ func ReadGitMetadata(root string) (GitMetadata, error) {
 	if err != nil {
 		return GitMetadata{}, err
 	}
-	sum := sha256.Sum256([]byte(diff))
+	sum := sha256.Sum256([]byte(status + "\n" + diff))
 
 	return GitMetadata{
 		SHA:        sha,

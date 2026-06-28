@@ -5,6 +5,7 @@ Go implementation of the side-project deployment system.
 ## Current Slice
 
 - `go run ./cmd/deploy --help`
+- `go run ./cmd/deploy init`
 - `go run ./cmd/deploy plan`
 - Installed locally as `pp`.
 

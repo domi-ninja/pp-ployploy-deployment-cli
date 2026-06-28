@@ -18,6 +18,8 @@ func Main(name string, args []string, stdout io.Writer, stderr io.Writer) int {
 	case "deploy":
 		fmt.Fprintf(stderr, "%s: full deployment is not implemented yet; run `%s plan` first\n", name, name)
 		return 2
+	case "init":
+		return runInit(stdout, stderr)
 	case "plan":
 		return runPlan(stdout, stderr)
 	case "status":
@@ -34,6 +36,24 @@ func Main(name string, args []string, stdout io.Writer, stderr io.Writer) int {
 		printHelp(name, stderr)
 		return 2
 	}
+}
+
+func runInit(stdout io.Writer, stderr io.Writer) int {
+	wd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(stderr, "error: read working directory: %v\n", err)
+		return 1
+	}
+
+	result, err := deploy.InitConfig(wd, "deploy.yml")
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintf(stdout, "created %s\n", result.Path)
+	fmt.Fprintf(stdout, "project: %s\n", result.ProjectName)
+	return 0
 }
 
 func runPlan(stdout io.Writer, stderr io.Writer) int {
@@ -63,6 +83,7 @@ func printHelp(name string, w io.Writer) {
 	fmt.Fprintf(w, "usage: %s <command>\n", name)
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "commands:")
+	fmt.Fprintln(w, "  init      create a starter deploy.yml")
 	fmt.Fprintln(w, "  plan      validate deploy.yml and print host/service placement")
 	fmt.Fprintln(w, "  status    show observed host state (not implemented)")
 	fmt.Fprintln(w, "  rollback  restore previous code and DB state (not implemented)")
