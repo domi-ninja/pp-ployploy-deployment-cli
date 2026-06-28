@@ -54,18 +54,20 @@ That role owns:
 - the `forgejo` and `forgejo-db` containers
 - Forgejo HTTP and Git SSH port exposure
 - Forgejo application secrets and first-admin bootstrap
-- optional proxy-route integration when a host has an external proxy path configured
+- optional Caddy proxy-route integration through the host-level reverse proxy role
 
 Forgejo is not deployed by `pp`. It is a persistent service managed by Ansible because it is part of the server platform, not a side-project release.
 
-On hosts that do not use a Coolify/Traefik proxy network, set these Forgejo vars to empty strings:
+On hosts that should expose Forgejo on HTTPS, enable the reverse proxy and Forgejo role together:
 
 ```yaml
-forgejo_proxy_dynamic_dir: ""
-forgejo_proxy_network: ""
+reverse_proxy_enabled: true
+forgejo_enabled: true
+forgejo_domain: git.example.com
+forgejo_root_url: "https://git.example.com/"
 ```
 
-That keeps Forgejo independent from the old Coolify proxy layout.
+The Forgejo role writes a Caddy route to `/etc/pp/proxy/routes/forgejo.caddy` by default and proxies to the Forgejo HTTP listener on localhost. The legacy Coolify/Traefik path is still available only when `forgejo_proxy_dynamic_dir` and `forgejo_proxy_network` are explicitly set.
 
 ### `pp` Host Ansible Path
 
@@ -134,4 +136,3 @@ Coolify was used previously as a platform layer. New work should not depend on i
 
 - Ansible for base host and platform services such as Forgejo.
 - `pp` for side-project application deployments.
-

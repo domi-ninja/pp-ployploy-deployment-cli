@@ -4,8 +4,12 @@ forgejo_base_dir: /data/forgejo
 forgejo_app_dir: "{{ forgejo_base_dir }}/app"
 forgejo_postgres_dir: "{{ forgejo_base_dir }}/postgres"
 forgejo_compose_dir: "{{ forgejo_base_dir }}/compose"
-forgejo_proxy_dynamic_dir: /data/coolify/proxy/dynamic
-forgejo_proxy_network: coolify
+forgejo_proxy_dynamic_dir: ""
+forgejo_proxy_network: ""
+forgejo_proxy_route_enabled: "{{ reverse_proxy_enabled | default(false) }}"
+forgejo_proxy_routes_dir: "{{ reverse_proxy_routes_dir | default('/etc/pp/proxy/routes') }}"
+forgejo_proxy_route_file: forgejo.caddy
+forgejo_proxy_target: "http://127.0.0.1:{{ forgejo_http_port }}"
 forgejo_uid: "1000"
 forgejo_gid: "1000"
 forgejo_postgres_uid: "70"

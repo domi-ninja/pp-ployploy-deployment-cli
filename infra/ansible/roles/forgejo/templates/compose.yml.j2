@@ -57,14 +57,14 @@ services:
     networks:
       - forgejo-internal
 {% if forgejo_proxy_network | length > 0 %}
-      - coolify
+      - forgejo-proxy
 {% endif %}
 
 networks:
   forgejo-internal:
     name: forgejo-internal
 {% if forgejo_proxy_network | length > 0 %}
-  coolify:
+  forgejo-proxy:
     name: {{ forgejo_proxy_network }}
     external: true
 {% endif %}

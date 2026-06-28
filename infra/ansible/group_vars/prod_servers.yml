@@ -50,6 +50,9 @@ forgejo_enabled: false
 forgejo_domain: ""
 forgejo_root_url: ""
 forgejo_ssh_port: "2222"
+forgejo_proxy_route_enabled: "{{ reverse_proxy_enabled | default(false) }}"
+forgejo_proxy_routes_dir: "{{ reverse_proxy_routes_dir | default('/etc/pp/proxy/routes') }}"
+forgejo_proxy_target: "http://127.0.0.1:{{ forgejo_http_port | default('3000') }}"
 
 # Optional Codeberg/Forgejo Actions runner.
 forgejo_runner_enabled: false

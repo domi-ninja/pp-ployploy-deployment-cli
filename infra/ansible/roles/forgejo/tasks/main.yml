@@ -52,7 +52,7 @@
   notify: restart forgejo
   no_log: true
 
-- name: Install Forgejo proxy route
+- name: Install Forgejo legacy Traefik proxy route
   ansible.builtin.template:
     src: forgejo.yaml.j2
     dest: "{{ forgejo_proxy_dynamic_dir }}/forgejo.yaml"
@@ -60,6 +60,25 @@
     group: root
     mode: "0600"
   when: forgejo_proxy_dynamic_dir | length > 0
+
+- name: Create Forgejo Caddy routes directory
+  ansible.builtin.file:
+    path: "{{ forgejo_proxy_routes_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: forgejo_proxy_route_enabled | bool
+
+- name: Install Forgejo Caddy proxy route
+  ansible.builtin.template:
+    src: forgejo.caddy.j2
+    dest: "{{ forgejo_proxy_routes_dir }}/{{ forgejo_proxy_route_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload caddy
+  when: forgejo_proxy_route_enabled | bool
 
 - name: Start Forgejo stack
   ansible.builtin.command: "docker compose -f {{ forgejo_compose_dir }}/compose.yml up -d --pull always --remove-orphans"

@@ -7,8 +7,8 @@ This Ansible stack provisions an Ubuntu 22.04+ host with a practical production 
 - UFW firewall with default-deny inbound policy, fail2ban, unattended security updates, chrony time sync, logrotate, journald retention, and basic sysctl hardening.
 - Docker Engine, the Docker Compose plugin, and a `docker-compose` compatibility command.
 - Optional persistent data volume mounted at `/data`.
-- Optional Coolify install using Coolify's documented Docker Compose layout under `/data/coolify`.
 - Optional Forgejo install using Docker Compose under `/data/forgejo`.
+- Optional Caddy reverse proxy for Forgejo and `pp`-managed application routes.
 - Optional compose-managed Forgejo Actions runner for Codeberg.
 - Optional compose-managed Woodpecker agent for Codeberg-hosted Woodpecker.
 
@@ -59,6 +59,7 @@ ssh deploy@SERVER_IP
 | `data_volume_enabled` | `false` | Mounts an attached block volume, normally at `/data`. |
 | `docker_data_root_enabled` | `false` | Moves Docker's data root to `docker_data_root_path`, normally `/data/docker`. |
 | `coolify_enabled` | `false` | Installs and starts Coolify from `/data/coolify/source`. |
+| `reverse_proxy_enabled` | `false` | Installs Caddy and imports route files from `/etc/pp/proxy/routes`. |
 | `forgejo_enabled` | `false` | Installs and starts Forgejo from `/data/forgejo`. |
 
 ## Coolify
@@ -115,6 +116,9 @@ For `p3.domi.ninja`, the real deployment values are kept in ignored local files:
 Enable Forgejo in ignored host vars:
 
 ```yaml
+reverse_proxy_enabled: true
+reverse_proxy_email: "admin@example.com"
+
 ufw_allowed_tcp_ports:
   - 22
   - 80
@@ -130,7 +134,9 @@ forgejo_admin_username: "admin"
 forgejo_admin_email: "admin@example.com"
 ```
 
-Keep `forgejo_db_password`, `forgejo_secret_key`, `forgejo_internal_token`, `forgejo_lfs_jwt_secret`, `forgejo_oauth2_jwt_secret`, and `forgejo_admin_password` in an ignored credentials file. The Forgejo role stores application and database data under `/data/forgejo`, exposes HTTP through the existing Coolify Traefik proxy, and exposes Git SSH on the configured high port.
+Keep `forgejo_db_password`, `forgejo_secret_key`, `forgejo_internal_token`, `forgejo_lfs_jwt_secret`, `forgejo_oauth2_jwt_secret`, and `forgejo_admin_password` in an ignored credentials file. The Forgejo role stores application and database data under `/data/forgejo`, publishes a Caddy route under `/etc/pp/proxy/routes/forgejo.caddy` when `reverse_proxy_enabled` is true, and exposes Git SSH on the configured high port.
+
+For legacy hosts still using a Coolify/Traefik proxy network, explicitly set `forgejo_proxy_dynamic_dir` and `forgejo_proxy_network`. New hosts should use `reverse_proxy_enabled: true` instead.
 
 ## Forgejo Actions runner
 
