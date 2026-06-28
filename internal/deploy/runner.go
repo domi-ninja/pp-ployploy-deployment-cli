@@ -23,6 +23,16 @@ func (r Runner) Run(dir string, name string, args ...string) error {
 	return nil
 }
 
+func (r Runner) Output(dir string, name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("%s %s: %w\n%s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 func shellQuote(value string) string {
 	if value == "" {
 		return "''"

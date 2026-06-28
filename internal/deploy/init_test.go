@@ -31,7 +31,8 @@ func TestInitConfigCreatesStarterDeployYAML(t *testing.T) {
 		"version: 1",
 		"name: my-app-name",
 		"ssh: deploy@example.com",
-		"local_url: \"http://127.0.0.1:7468\"",
+		"published: auto",
+		"host: my-app-name.example.com",
 	} {
 		if !strings.Contains(text, wanted) {
 			t.Fatalf("starter config missing %q:\n%s", wanted, text)

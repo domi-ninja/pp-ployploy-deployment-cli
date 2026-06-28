@@ -1,34 +1,33 @@
-# 011 - Implement Status And Deployment Records
+# 011 - Implement SSH-Observed Status And Deployment Records
 
 ## Goal
 
-Implement `deploy status` and make deployment records useful enough for operations.
+Implement `deploy status` with local deployment records plus SSH-observed host state.
 
 ## Depends On
 
-- 007
 - 009
 - 010
 
 ## Scope
 
-- Query all configured host agents.
+- Query configured hosts over SSH.
 - Display desired vs observed state.
 - Show current release, previous release, git SHA, dirty flag, service status, image tags, disk space, and last deploy result.
 - Store local deployment metadata under `.deploy/releases/`.
-- Store host-local deployment metadata for agent reporting.
+- Read remote state from Docker, Caddy route files, image tags, disk usage, and pp allocation files.
 
 ## Deliverables
 
 - `deploy status` implementation.
 - Local metadata schema.
-- Host metadata schema.
+- SSH observed-state reader.
 - Tests for status formatting and mismatch detection.
 
 ## Acceptance Criteria
 
 - Status works without starting a deployment.
-- Missing/unreachable agents are clearly shown per host.
+- Missing/unreachable SSH hosts are clearly shown per host.
 - Desired/observed mismatches are called out.
 - Previous release data is available for rollback.
 - Migration and DB rollback state are visible in status output.

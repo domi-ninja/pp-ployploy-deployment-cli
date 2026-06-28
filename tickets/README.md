@@ -4,12 +4,10 @@ Numbered implementation tickets for the side-project deployment pipeline.
 
 ## Open
 
-1. [007 - Build Go Host Agent MVP](007-build-go-host-agent-mvp.md)
-2. [008 - Install Host Agent With Ansible](008-install-host-agent-with-ansible.md)
-3. [010 - Run Prod Migrations And Smoke Checks](010-run-prod-migrations-and-smoke-checks.md)
-4. [011 - Implement Status And Deployment Records](011-implement-status-and-deployment-records.md)
-5. [012 - Implement Rollback](012-implement-rollback.md)
-6. [013 - Wire End-To-End Example Project](013-wire-end-to-end-example-project.md)
+1. [010 - Run Prod Migrations And Smoke Checks](010-run-prod-migrations-and-smoke-checks.md)
+2. [011 - Implement SSH-Observed Status And Deployment Records](011-implement-status-and-deployment-records.md)
+3. [012 - Implement Rollback](012-implement-rollback.md)
+4. [013 - Wire End-To-End Example Project](013-wire-end-to-end-example-project.md)
 
 ## Done
 
@@ -20,6 +18,12 @@ Numbered implementation tickets for the side-project deployment pipeline.
 5. [005 - Build And Tag Local Images](done/005-build-and-tag-local-images.md)
 6. [006 - Transfer Images And Bundles Over SSH](done/006-transfer-images-and-bundles-over-ssh.md)
 7. [009 - Apply Compose Releases On Hosts](done/009-apply-compose-releases-on-hosts.md)
+8. [014 - Allocate Project Backend Ports](done/014-allocate-project-backend-ports.md)
+
+## Dropped
+
+1. [007 - Build Go Host Agent MVP](dropped/007-build-go-host-agent-mvp.md)
+2. [008 - Install Host Agent With Ansible](dropped/008-install-host-agent-with-ansible.md)
 
 ## Ticket Format
 

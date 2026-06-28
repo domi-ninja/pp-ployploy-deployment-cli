@@ -12,7 +12,10 @@ type Plan struct {
 	Git       GitMetadata
 	ReleaseID string
 	Hosts     []HostPlan
+	AutoPorts AutoPortAssignments
 }
+
+type AutoPortAssignments map[string]map[string]map[int]int
 
 type HostPlan struct {
 	ID       string
@@ -58,7 +61,37 @@ func BuildPlan(cfg Config, git GitMetadata, now time.Time) Plan {
 		Git:       git,
 		ReleaseID: ReleaseID(now, git.ShortSHA),
 		Hosts:     hostPlans,
+		AutoPorts: AutoPortAssignments{},
 	}
+}
+
+func (p *Plan) SetAutoPort(hostID string, serviceID string, target int, published int) {
+	if p.AutoPorts == nil {
+		p.AutoPorts = AutoPortAssignments{}
+	}
+	if _, ok := p.AutoPorts[hostID]; !ok {
+		p.AutoPorts[hostID] = map[string]map[int]int{}
+	}
+	if _, ok := p.AutoPorts[hostID][serviceID]; !ok {
+		p.AutoPorts[hostID][serviceID] = map[int]int{}
+	}
+	p.AutoPorts[hostID][serviceID][target] = published
+}
+
+func (p Plan) AutoPort(hostID string, serviceID string, target int) (int, bool) {
+	if p.AutoPorts == nil {
+		return 0, false
+	}
+	services, ok := p.AutoPorts[hostID]
+	if !ok {
+		return 0, false
+	}
+	targets, ok := services[serviceID]
+	if !ok {
+		return 0, false
+	}
+	published, ok := targets[target]
+	return published, ok
 }
 
 func PrintPlan(w io.Writer, plan Plan) {

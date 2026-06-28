@@ -71,7 +71,7 @@ func TestRenderBundleSupportsHostIPPortBinding(t *testing.T) {
 	writeFile(t, root, ".env.prod", "DATABASE_URL=postgres://example\nSESSION_SECRET=secret\nQUEUE_URL=redis://example\n")
 	cfg := validConfig()
 	web := cfg.Services["web"]
-	web.Ports = []Port{{HostIP: "127.0.0.1", Published: 8081, Target: 80}}
+	web.Ports = []Port{{HostIP: "127.0.0.1", Published: FixedPort(8081), Target: 80}}
 	cfg.Services["web"] = web
 	git := GitMetadata{SHA: "abcdef1234567890", ShortSHA: "abcdef1"}
 	plan := BuildPlan(cfg, git, time.Date(2026, 6, 28, 10, 0, 0, 0, time.UTC))
@@ -86,5 +86,40 @@ func TestRenderBundleSupportsHostIPPortBinding(t *testing.T) {
 	}
 	if !strings.Contains(string(compose), "- 127.0.0.1:8081:80") {
 		t.Fatalf("compose missing host ip port binding:\n%s", string(compose))
+	}
+}
+
+func TestRenderBundleUsesAllocatedAutoPortForComposeAndRoute(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, ".env.prod", "DATABASE_URL=postgres://example\nSESSION_SECRET=secret\nQUEUE_URL=redis://example\n")
+	cfg := validConfig()
+	web := cfg.Services["web"]
+	web.Ports = []Port{{Published: AutoPort(), Target: 80}}
+	cfg.Services["web"] = web
+	cfg.Routes = []Route{{
+		Host:    "quotes.example.com",
+		Service: "web",
+	}}
+	git := GitMetadata{SHA: "abcdef1234567890", ShortSHA: "abcdef1"}
+	plan := BuildPlan(cfg, git, time.Date(2026, 6, 28, 10, 0, 0, 0, time.UTC))
+	plan.SetAutoPort("app-01", "web", 80, 18001)
+
+	bundle, err := RenderBundle(root, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compose, err := os.ReadFile(filepath.Join(bundle.Root, "hosts", "app-01", "compose.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(compose), "- 127.0.0.1:18001:80") {
+		t.Fatalf("compose missing allocated auto port:\n%s", string(compose))
+	}
+	routes, err := os.ReadFile(filepath.Join(bundle.Root, "hosts", "app-01", "routes.caddy"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(routes), "reverse_proxy http://127.0.0.1:18001") {
+		t.Fatalf("route missing allocated auto port:\n%s", string(routes))
 	}
 }

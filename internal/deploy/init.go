@@ -57,8 +57,6 @@ build:
 hosts:
   app-01:
     ssh: deploy@example.com
-    agent:
-      local_url: "http://127.0.0.1:7468"
     roles: [web]
 
 services:
@@ -66,12 +64,16 @@ services:
     image: "%s:${git_sha}"
     hosts: [app-01]
     ports:
-      - published: 8080
+      - published: auto
         target: 3000
     health:
       command: ["true"]
       timeout_seconds: 60
-`, projectName, projectName, projectName)
+
+routes:
+  - host: %s.example.com
+    service: web
+`, projectName, projectName, projectName, projectName)
 }
 
 func slugify(value string) string {

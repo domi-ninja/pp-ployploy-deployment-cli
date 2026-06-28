@@ -12,7 +12,7 @@ Prove the deployment pipeline against one representative side project shape.
 
 - Add an example `deploy.yml`.
 - Include web service, worker service, volume, migration, DB rollback, and smoke check.
-- Exercise local build, bundle render, SSH transfer, compose apply, agent status, and rollback in a non-critical environment.
+- Exercise local build, bundle render, SSH transfer, compose apply, SSH-observed status, and rollback in a non-critical environment.
 - Document the exact operator workflow.
 
 ## Deliverables

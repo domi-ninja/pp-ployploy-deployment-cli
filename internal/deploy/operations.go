@@ -37,6 +37,9 @@ func (d Deployer) Deploy() error {
 	if err != nil {
 		return err
 	}
+	if err := d.ResolveAutoPorts(&plan); err != nil {
+		return err
+	}
 	bundle, err := RenderBundle(d.Root, plan)
 	if err != nil {
 		return err

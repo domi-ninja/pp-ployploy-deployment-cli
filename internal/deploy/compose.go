@@ -101,7 +101,7 @@ func RenderBundle(root string, plan Plan) (Bundle, error) {
 				envFiles = append(envFiles, envFile)
 			}
 
-			composeService := renderComposeService(plan, serviceID, service, vars, envFile)
+			composeService := renderComposeService(plan, hostPlan.ID, serviceID, service, vars, envFile)
 			compose.Services[serviceID] = composeService
 			for _, mount := range service.Volumes {
 				volume := plan.Config.Volumes[mount.Name]
@@ -145,10 +145,14 @@ func renderCaddyRoutes(hostDir string, plan Plan, hostID string) (string, error)
 		if !routeBelongsToHost(plan.Config, route, hostID) {
 			continue
 		}
+		target, err := routeTarget(plan, hostID, route)
+		if err != nil {
+			return "", err
+		}
 		body.WriteString(route.Host)
 		body.WriteString(" {\n")
 		body.WriteString("\treverse_proxy ")
-		body.WriteString(route.Target)
+		body.WriteString(target)
 		body.WriteString("\n")
 		body.WriteString("}\n\n")
 	}
@@ -162,6 +166,48 @@ func renderCaddyRoutes(hostDir string, plan Plan, hostID string) (string, error)
 	return path, nil
 }
 
+func routeTarget(plan Plan, hostID string, route Route) (string, error) {
+	if route.Target != "" {
+		return route.Target, nil
+	}
+	service, ok := plan.Config.Services[route.Service]
+	if !ok {
+		return "", fmt.Errorf("route %s references unknown service %s", route.Host, route.Service)
+	}
+	port, ok := selectRoutePort(service, route.TargetPort)
+	if !ok {
+		return "", fmt.Errorf("route %s cannot infer target for service %s", route.Host, route.Service)
+	}
+	published := port.Published.Value
+	if port.Published.Auto {
+		allocated, ok := plan.AutoPort(hostID, route.Service, port.Target)
+		if !ok {
+			return "", fmt.Errorf("route %s needs allocated port for %s:%d", route.Host, route.Service, port.Target)
+		}
+		published = allocated
+	}
+	hostIP := port.HostIP
+	if hostIP == "" {
+		hostIP = "127.0.0.1"
+	}
+	return "http://" + hostIP + ":" + strconv.Itoa(published), nil
+}
+
+func selectRoutePort(service Service, targetPort int) (Port, bool) {
+	if targetPort == 0 {
+		if len(service.Ports) != 1 {
+			return Port{}, false
+		}
+		return service.Ports[0], true
+	}
+	for _, port := range service.Ports {
+		if port.Target == targetPort {
+			return port, true
+		}
+	}
+	return Port{}, false
+}
+
 func routeBelongsToHost(cfg Config, route Route, hostID string) bool {
 	if route.HostID != "" {
 		return route.HostID == hostID
@@ -170,7 +216,7 @@ func routeBelongsToHost(cfg Config, route Route, hostID string) bool {
 	return ok && contains(service.Hosts, hostID)
 }
 
-func renderComposeService(plan Plan, serviceID string, service Service, vars RenderVars, envFile string) ComposeService {
+func renderComposeService(plan Plan, hostID string, serviceID string, service Service, vars RenderVars, envFile string) ComposeService {
 	labels := map[string]string{
 		"pp.project":     plan.Config.Project.Name,
 		"pp.environment": plan.Config.Project.Environment,
@@ -184,7 +230,7 @@ func renderComposeService(plan Plan, serviceID string, service Service, vars Ren
 		Restart:    "unless-stopped",
 		Command:    service.Command,
 		Entrypoint: service.Entrypoint,
-		Ports:      renderPorts(service.Ports),
+		Ports:      renderPorts(plan, hostID, serviceID, service.Ports),
 		Volumes:    renderVolumeMounts(service.Volumes),
 		Labels:     labels,
 	}
@@ -238,12 +284,22 @@ func renderServiceEnv(root string, envDir string, serviceID string, env EnvSpec)
 	return path, nil
 }
 
-func renderPorts(ports []Port) []string {
+func renderPorts(plan Plan, hostID string, serviceID string, ports []Port) []string {
 	out := make([]string, 0, len(ports))
 	for _, port := range ports {
-		value := strconv.Itoa(port.Published) + ":" + strconv.Itoa(port.Target)
+		published := port.Published.Value
+		if port.Published.Auto {
+			allocated, ok := plan.AutoPort(hostID, serviceID, port.Target)
+			if !ok {
+				continue
+			}
+			published = allocated
+		}
+		value := strconv.Itoa(published) + ":" + strconv.Itoa(port.Target)
 		if port.HostIP != "" {
 			value = port.HostIP + ":" + value
+		} else if port.Published.Auto {
+			value = "127.0.0.1:" + value
 		}
 		out = append(out, value)
 	}

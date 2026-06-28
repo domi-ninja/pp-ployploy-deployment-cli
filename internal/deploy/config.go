@@ -37,13 +37,8 @@ type Build struct {
 }
 
 type Host struct {
-	SSH   string    `yaml:"ssh"`
-	Agent HostAgent `yaml:"agent"`
-	Roles []string  `yaml:"roles"`
-}
-
-type HostAgent struct {
-	LocalURL string `yaml:"local_url"`
+	SSH   string   `yaml:"ssh"`
+	Roles []string `yaml:"roles"`
 }
 
 type Service struct {
@@ -58,10 +53,11 @@ type Service struct {
 }
 
 type Route struct {
-	Host    string `yaml:"host"`
-	Service string `yaml:"service"`
-	Target  string `yaml:"target"`
-	HostID  string `yaml:"host_id"`
+	Host       string `yaml:"host"`
+	Service    string `yaml:"service"`
+	Target     string `yaml:"target"`
+	TargetPort int    `yaml:"target_port"`
+	HostID     string `yaml:"host_id"`
 }
 
 type EnvSpec struct {
@@ -70,9 +66,47 @@ type EnvSpec struct {
 }
 
 type Port struct {
-	HostIP    string `yaml:"host_ip"`
-	Published int    `yaml:"published"`
-	Target    int    `yaml:"target"`
+	HostIP    string        `yaml:"host_ip"`
+	Published PublishedPort `yaml:"published"`
+	Target    int           `yaml:"target"`
+}
+
+type PublishedPort struct {
+	Value int
+	Auto  bool
+}
+
+func (p *PublishedPort) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.ScalarNode {
+		return fmt.Errorf("published port must be a number or auto")
+	}
+	if value.Value == "auto" {
+		p.Auto = true
+		p.Value = 0
+		return nil
+	}
+	var decoded int
+	if err := value.Decode(&decoded); err != nil {
+		return fmt.Errorf("published port must be a number or auto")
+	}
+	p.Value = decoded
+	p.Auto = false
+	return nil
+}
+
+func (p PublishedPort) MarshalYAML() (any, error) {
+	if p.Auto {
+		return "auto", nil
+	}
+	return p.Value, nil
+}
+
+func FixedPort(value int) PublishedPort {
+	return PublishedPort{Value: value}
+}
+
+func AutoPort() PublishedPort {
+	return PublishedPort{Auto: true}
 }
 
 type VolumeMount struct {
@@ -166,11 +200,6 @@ func ValidateConfig(root string, cfg Config) error {
 		host := item.Value
 		validateSlug(&problems, "hosts."+hostID, hostID)
 		require(&problems, "hosts."+hostID+".ssh", host.SSH)
-		if host.Agent.LocalURL == "" {
-			problems = append(problems, "hosts."+hostID+".agent.local_url is required")
-		} else if err := validateLocalURL(host.Agent.LocalURL); err != nil {
-			problems = append(problems, "hosts."+hostID+".agent.local_url "+err.Error())
-		}
 	}
 
 	hostPorts := map[string]map[int]string{}
@@ -191,14 +220,17 @@ func ValidateConfig(root string, cfg Config) error {
 				hostPorts[hostID] = map[int]string{}
 			}
 			for _, port := range service.Ports {
-				if port.Published <= 0 || port.Target <= 0 {
-					problems = append(problems, "services."+serviceID+".ports must use positive published and target ports")
+				if (!port.Published.Auto && port.Published.Value <= 0) || port.Target <= 0 {
+					problems = append(problems, "services."+serviceID+".ports must use positive published and target ports, or published: auto")
 					continue
 				}
-				if owner, exists := hostPorts[hostID][port.Published]; exists {
-					problems = append(problems, fmt.Sprintf("host %s published port %d conflicts between services %s and %s", hostID, port.Published, owner, serviceID))
+				if port.Published.Auto {
+					continue
 				}
-				hostPorts[hostID][port.Published] = serviceID
+				if owner, exists := hostPorts[hostID][port.Published.Value]; exists {
+					problems = append(problems, fmt.Sprintf("host %s published port %d conflicts between services %s and %s", hostID, port.Published.Value, owner, serviceID))
+				}
+				hostPorts[hostID][port.Published.Value] = serviceID
 			}
 		}
 		validateEnv(&problems, root, "services."+serviceID+".env", service.Env)
@@ -221,10 +253,15 @@ func ValidateConfig(root string, cfg Config) error {
 		if _, ok := cfg.Services[route.Service]; route.Service != "" && !ok {
 			problems = append(problems, field+".service references unknown service "+route.Service)
 		}
-		if route.Target == "" {
-			problems = append(problems, field+".target is required")
-		} else if err := validateRouteTarget(route.Target); err != nil {
-			problems = append(problems, field+".target "+err.Error())
+		if route.Target != "" {
+			if err := validateRouteTarget(route.Target); err != nil {
+				problems = append(problems, field+".target "+err.Error())
+			}
+		} else {
+			service, ok := cfg.Services[route.Service]
+			if !ok || !routeCanDeriveTarget(service, route.TargetPort) {
+				problems = append(problems, field+".target is required unless service has exactly one matching port")
+			}
 		}
 		if route.HostID != "" {
 			if _, ok := cfg.Hosts[route.HostID]; !ok {
@@ -290,20 +327,6 @@ func validateHealth(problems *[]string, field string, health Health, externallyR
 	}
 }
 
-func validateLocalURL(rawURL string) error {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return fmt.Errorf("must be a valid URL")
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("must use http or https")
-	}
-	if parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "localhost" {
-		return fmt.Errorf("must point to localhost or 127.0.0.1")
-	}
-	return nil
-}
-
 func validateRouteTarget(rawURL string) error {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
@@ -316,6 +339,21 @@ func validateRouteTarget(rawURL string) error {
 		return fmt.Errorf("must include host")
 	}
 	return nil
+}
+
+func routeCanDeriveTarget(service Service, targetPort int) bool {
+	if len(service.Ports) == 0 {
+		return false
+	}
+	if targetPort == 0 {
+		return len(service.Ports) == 1
+	}
+	for _, port := range service.Ports {
+		if port.Target == targetPort {
+			return true
+		}
+	}
+	return false
 }
 
 func require(problems *[]string, field string, value string) {

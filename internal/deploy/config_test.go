@@ -27,7 +27,7 @@ func TestValidateConfigRejectsUnknownHostAndPortConflict(t *testing.T) {
 	cfg.Services["web"] = web
 	worker := cfg.Services["worker"]
 	worker.Hosts = []string{"app-01"}
-	worker.Ports = []Port{{Published: 443, Target: 3001}}
+	worker.Ports = []Port{{Published: FixedPort(443), Target: 3001}}
 	cfg.Services["worker"] = worker
 
 	err := ValidateConfig(root, cfg)
@@ -110,12 +110,10 @@ func validConfig() Config {
 		},
 		Hosts: map[string]Host{
 			"app-01": {
-				SSH:   "deploy@app-01.example.com",
-				Agent: HostAgent{LocalURL: "http://127.0.0.1:7468"},
+				SSH: "deploy@app-01.example.com",
 			},
 			"worker-01": {
-				SSH:   "deploy@worker-01.example.com",
-				Agent: HostAgent{LocalURL: "http://127.0.0.1:7468"},
+				SSH: "deploy@worker-01.example.com",
 			},
 		},
 		Services: map[string]Service{
@@ -126,7 +124,7 @@ func validConfig() Config {
 					Source:   ".env.prod",
 					Required: []string{"DATABASE_URL", "SESSION_SECRET"},
 				},
-				Ports:  []Port{{Published: 443, Target: 3000}},
+				Ports:  []Port{{Published: FixedPort(443), Target: 3000}},
 				Health: Health{HTTP: "https://quotes.example.com/health"},
 			},
 			"worker": {

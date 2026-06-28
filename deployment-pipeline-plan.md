@@ -9,8 +9,8 @@ Param-less Go deploy CLI for side projects: local development uses a separate de
 - `deploy`: single repo-local Go CLI command; no required args in the normal path.
 - Inputs: committed deployment config, local `.env`, current git commit, reachable prod hosts.
 - Output: built image tar, rendered compose specs, applied host changes, deployment record.
-- State source: repo config is desired state; server management client reports observed state.
-- Provisioning: Ansible owns base server setup, Docker, volumes, users, firewall, and the management client.
+- State source: repo config is desired state; `pp` reads observed state over SSH.
+- Provisioning: Ansible owns base server setup, Docker, volumes, users, firewall, and the host reverse proxy.
 - Project fence: deployment system is Go; project code stays behind a language/tooling boundary.
 
 ## Artifact Strategy
@@ -36,12 +36,12 @@ Param-less Go deploy CLI for side projects: local development uses a separate de
 - Runtime env vars are provisioned into containers by the deploy system; v1 can use strict-permission host env files, but the schema should model required container env rather than project code reading deployment internals.
 - Validate required secrets before build/apply; fail before touching prod if anything is missing.
 
-## Server Management Client
+## Host State
 
-- Persistent Go host agent delivered as a binary records: current release, compose project status, container health, image tags, disk space, last deploy log.
-- CLI queries all target hosts before deployment and after rollout.
-- SSH is the only control path: agent access goes through SSH, image/bundle transfer goes through SSH, and compose apply runs over SSH.
-- Agent binds locally on the host and persists state on the host.
+- SSH is the only control path: status reads, image/bundle transfer, compose apply, and Caddy reload all run over SSH.
+- Local release metadata lives under `.deploy/releases/`.
+- Host-local runtime state lives under `/etc/pp`, including proxy routes and auto port allocation.
+- Auto backend ports are allocated from `127.0.0.1:18000-19999` and recorded in `/etc/pp/ports.tsv` under a file lock.
 
 ## Deploy Flow
 
@@ -51,7 +51,7 @@ Param-less Go deploy CLI for side projects: local development uses a separate de
 4. Render: generate per-host compose specs and runtime env artifacts into a deploy bundle.
 5. Migrate: run prod DB migration inside the built app container before service update.
 6. Apply: upload bundle, run `docker compose up -d` over SSH.
-7. Verify: wait for health checks, query management state through SSH-reached agent, run optional HTTP smoke checks.
+7. Verify: wait for health checks, query observed host state over SSH, run optional HTTP smoke checks.
 8. Record: write deployment metadata locally and on each host, including dirty worktree flag/digest.
 9. Rollback: re-apply previous known-good release bundle/image tag and run DB rollback command/restore plan.
 
@@ -69,7 +69,7 @@ Param-less Go deploy CLI for side projects: local development uses a separate de
 1. Define deployment config schema and one example project.
 2. Implement `deploy plan` with per-host compose rendering.
 3. Implement local build and image tagging.
-4. Implement Go host agent status API and SSH-based apply.
+4. Implement SSH-observed status and SSH-based apply.
 5. Add health checks, deployment records, and rollback.
 6. Move repeated server setup into Ansible roles and wire hosts from Terraform-style vars later.
 
@@ -88,6 +88,7 @@ Param-less Go deploy CLI for side projects: local development uses a separate de
 - Release IDs combine timestamp and git SHA.
 - Dirty deploys are allowed and recorded in metadata.
 - Runtime env variables are provisioned into containers by the deploy system.
-- SSH is the control plane for agent access, image transfer, and compose apply.
-- Persistent Go host agent delivered as a binary.
+- SSH is the control plane for status, image transfer, route updates, and compose apply.
+- No host agent in v1; add one only if SSH-observed state becomes a real operational ceiling.
+- Auto backend ports are allocated per host/project/service/target.
 - Rollback covers both code and DB state.
