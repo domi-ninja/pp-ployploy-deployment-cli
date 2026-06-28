@@ -31,6 +31,9 @@ func InitConfig(root string, configPath string) (InitResult, error) {
 	if err := os.WriteFile(fullPath, []byte(body), 0644); err != nil {
 		return InitResult{}, fmt.Errorf("write %s: %w", configPath, err)
 	}
+	if err := ensureGitignoreEntry(root, ".deploy/"); err != nil {
+		return InitResult{}, err
+	}
 
 	return InitResult{Path: fullPath, ProjectName: projectName}, nil
 }
@@ -85,4 +88,28 @@ func slugify(value string) string {
 		}
 	}
 	return strings.Trim(out.String(), "-")
+}
+
+func ensureGitignoreEntry(root string, entry string) error {
+	path := filepath.Join(root, ".gitignore")
+	body, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read .gitignore: %w", err)
+	}
+	lines := strings.Split(string(body), "\n")
+	for _, line := range lines {
+		if strings.TrimSpace(line) == entry {
+			return nil
+		}
+	}
+
+	prefix := ""
+	if len(body) > 0 && !strings.HasSuffix(string(body), "\n") {
+		prefix = "\n"
+	}
+	addition := prefix + "\n# pp deployment bundles and state\n" + entry + "\n"
+	if err := os.WriteFile(path, append(body, []byte(addition)...), 0644); err != nil {
+		return fmt.Errorf("write .gitignore: %w", err)
+	}
+	return nil
 }
