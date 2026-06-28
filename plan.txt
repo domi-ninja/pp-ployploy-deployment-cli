@@ -1,0 +1,16 @@
+lets plan out deployment pipeline that consist of a cli which builds a container locally.
+
+so the workflow goes like this:
+
+1. i develop and test with local servers but connected to prod db
+2. deploying is a param-less cli
+3. done
+
+more:
+
+- this is for my side projects
+- prod setup is a docker-compose-ish thing running on multiple bare metal servers, how do we compose multiple docker composes together correctly? or do we build containers locally?
+- to deploy, we have configs locally in the repo in a commited file, and .env file, which will be used alongside
+- prod servers have a management client which will track their state. We can reuuse existing software for that if its easy, but its whatever. Servers are managed by ansible in this repo as well, but that can be "hardcoded" in terraform variable files for now.
+
+write a very brief, very information dense plan for this, i will edit it, and then we start spinning out subthingies for this
