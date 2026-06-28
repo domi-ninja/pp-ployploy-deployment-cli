@@ -204,7 +204,11 @@ func renderServiceEnv(root string, envDir string, serviceID string, env EnvSpec)
 func renderPorts(ports []Port) []string {
 	out := make([]string, 0, len(ports))
 	for _, port := range ports {
-		out = append(out, strconv.Itoa(port.Published)+":"+strconv.Itoa(port.Target))
+		value := strconv.Itoa(port.Published) + ":" + strconv.Itoa(port.Target)
+		if port.HostIP != "" {
+			value = port.HostIP + ":" + value
+		}
+		out = append(out, value)
 	}
 	return out
 }

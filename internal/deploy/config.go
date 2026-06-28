@@ -62,8 +62,9 @@ type EnvSpec struct {
 }
 
 type Port struct {
-	Published int `yaml:"published"`
-	Target    int `yaml:"target"`
+	HostIP    string `yaml:"host_ip"`
+	Published int    `yaml:"published"`
+	Target    int    `yaml:"target"`
 }
 
 type VolumeMount struct {

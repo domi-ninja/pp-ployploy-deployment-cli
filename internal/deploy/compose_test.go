@@ -51,3 +51,26 @@ func TestRenderBundleWritesComposeAndEnv(t *testing.T) {
 		t.Fatalf("unexpected env file:\n%s", envText)
 	}
 }
+
+func TestRenderBundleSupportsHostIPPortBinding(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, ".env.prod", "DATABASE_URL=postgres://example\nSESSION_SECRET=secret\nQUEUE_URL=redis://example\n")
+	cfg := validConfig()
+	web := cfg.Services["web"]
+	web.Ports = []Port{{HostIP: "127.0.0.1", Published: 8081, Target: 80}}
+	cfg.Services["web"] = web
+	git := GitMetadata{SHA: "abcdef1234567890", ShortSHA: "abcdef1"}
+	plan := BuildPlan(cfg, git, time.Date(2026, 6, 28, 10, 0, 0, 0, time.UTC))
+
+	bundle, err := RenderBundle(root, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compose, err := os.ReadFile(filepath.Join(bundle.Root, "hosts", "app-01", "compose.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(compose), "- 127.0.0.1:8081:80") {
+		t.Fatalf("compose missing host ip port binding:\n%s", string(compose))
+	}
+}

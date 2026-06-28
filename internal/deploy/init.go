@@ -31,7 +31,10 @@ func InitConfig(root string, configPath string) (InitResult, error) {
 	if err := os.WriteFile(fullPath, []byte(body), 0644); err != nil {
 		return InitResult{}, fmt.Errorf("write %s: %w", configPath, err)
 	}
-	if err := ensureGitignoreEntry(root, ".deploy/"); err != nil {
+	if err := ensureIgnoreEntry(root, ".gitignore", ".deploy/"); err != nil {
+		return InitResult{}, err
+	}
+	if err := ensureIgnoreEntry(root, ".dockerignore", ".deploy"); err != nil {
 		return InitResult{}, err
 	}
 
@@ -90,11 +93,11 @@ func slugify(value string) string {
 	return strings.Trim(out.String(), "-")
 }
 
-func ensureGitignoreEntry(root string, entry string) error {
-	path := filepath.Join(root, ".gitignore")
+func ensureIgnoreEntry(root string, fileName string, entry string) error {
+	path := filepath.Join(root, fileName)
 	body, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("read .gitignore: %w", err)
+		return fmt.Errorf("read %s: %w", fileName, err)
 	}
 	lines := strings.Split(string(body), "\n")
 	for _, line := range lines {
@@ -109,7 +112,7 @@ func ensureGitignoreEntry(root string, entry string) error {
 	}
 	addition := prefix + "\n# pp deployment bundles and state\n" + entry + "\n"
 	if err := os.WriteFile(path, append(body, []byte(addition)...), 0644); err != nil {
-		return fmt.Errorf("write .gitignore: %w", err)
+		return fmt.Errorf("write %s: %w", fileName, err)
 	}
 	return nil
 }

@@ -45,6 +45,13 @@ func TestInitConfigCreatesStarterDeployYAML(t *testing.T) {
 	if !strings.Contains(string(gitignore), ".deploy/") {
 		t.Fatalf(".gitignore missing .deploy/:\n%s", string(gitignore))
 	}
+	dockerignore, err := os.ReadFile(filepath.Join(root, ".dockerignore"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(dockerignore), ".deploy") {
+		t.Fatalf(".dockerignore missing .deploy:\n%s", string(dockerignore))
+	}
 }
 
 func TestInitConfigRefusesOverwrite(t *testing.T) {
