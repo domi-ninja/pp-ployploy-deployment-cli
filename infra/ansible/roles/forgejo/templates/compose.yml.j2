@@ -56,10 +56,15 @@ services:
       - "{{ forgejo_ssh_bind }}:{{ forgejo_ssh_port }}:22"
     networks:
       - forgejo-internal
+{% if forgejo_proxy_network | length > 0 %}
       - coolify
+{% endif %}
 
 networks:
   forgejo-internal:
     name: forgejo-internal
+{% if forgejo_proxy_network | length > 0 %}
   coolify:
+    name: {{ forgejo_proxy_network }}
     external: true
+{% endif %}

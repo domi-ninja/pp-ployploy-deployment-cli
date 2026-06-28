@@ -59,6 +59,7 @@
     owner: "9999"
     group: root
     mode: "0600"
+  when: forgejo_proxy_dynamic_dir | length > 0
 
 - name: Start Forgejo stack
   ansible.builtin.command: "docker compose -f {{ forgejo_compose_dir }}/compose.yml up -d --pull always --remove-orphans"

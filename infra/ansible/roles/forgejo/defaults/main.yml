@@ -5,6 +5,7 @@ forgejo_app_dir: "{{ forgejo_base_dir }}/app"
 forgejo_postgres_dir: "{{ forgejo_base_dir }}/postgres"
 forgejo_compose_dir: "{{ forgejo_base_dir }}/compose"
 forgejo_proxy_dynamic_dir: /data/coolify/proxy/dynamic
+forgejo_proxy_network: coolify
 forgejo_uid: "1000"
 forgejo_gid: "1000"
 forgejo_postgres_uid: "70"
