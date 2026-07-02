@@ -10,22 +10,29 @@ import (
 )
 
 type ReleaseRecord struct {
-	Project           string       `json:"project"`
-	Environment       string       `json:"environment"`
-	ReleaseID         string       `json:"release_id"`
-	PreviousReleaseID string       `json:"previous_release_id,omitempty"`
-	Git               GitMetadata  `json:"git"`
-	ImageTags         []string     `json:"image_tags"`
-	ImageTar          string       `json:"image_tar"`
-	BundlePath        string       `json:"bundle_path"`
-	RemoteBase        string       `json:"remote_base"`
-	Hosts             []HostRecord `json:"hosts"`
-	Migration         StepRecord   `json:"migration"`
-	Apply             StepRecord   `json:"apply"`
-	Rollback          StepRecord   `json:"rollback"`
-	Status            string       `json:"status"`
-	CreatedAt         time.Time    `json:"created_at"`
-	UpdatedAt         time.Time    `json:"updated_at"`
+	Project           string        `json:"project"`
+	Environment       string        `json:"environment"`
+	ReleaseID         string        `json:"release_id"`
+	PreviousReleaseID string        `json:"previous_release_id,omitempty"`
+	Git               GitMetadata   `json:"git"`
+	ImageTags         []string      `json:"image_tags"`
+	ImageTar          string        `json:"image_tar"`
+	Images            []ImageRecord `json:"images,omitempty"`
+	BundlePath        string        `json:"bundle_path"`
+	RemoteBase        string        `json:"remote_base"`
+	Hosts             []HostRecord  `json:"hosts"`
+	Migration         StepRecord    `json:"migration"`
+	Apply             StepRecord    `json:"apply"`
+	Rollback          StepRecord    `json:"rollback"`
+	Status            string        `json:"status"`
+	CreatedAt         time.Time     `json:"created_at"`
+	UpdatedAt         time.Time     `json:"updated_at"`
+}
+
+type ImageRecord struct {
+	ID   string   `json:"id"`
+	Tar  string   `json:"tar"`
+	Tags []string `json:"tags"`
 }
 
 type HostRecord struct {

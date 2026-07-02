@@ -23,6 +23,7 @@ type ComposeService struct {
 	Entrypoint  []string          `yaml:"entrypoint,omitempty"`
 	Ports       []string          `yaml:"ports,omitempty"`
 	EnvFile     []string          `yaml:"env_file,omitempty"`
+	Environment map[string]string `yaml:"environment,omitempty"`
 	Volumes     []string          `yaml:"volumes,omitempty"`
 	Labels      map[string]string `yaml:"labels,omitempty"`
 	Healthcheck *Healthcheck      `yaml:"healthcheck,omitempty"`
@@ -44,38 +45,50 @@ type Bundle struct {
 	Root      string
 	ImageTar  string
 	ImageTags []string
+	Images    []ImageBundle
 	Hosts     []HostBundle
 }
 
+type ImageBundle struct {
+	ID    string
+	Tar   string
+	Tags  []string
+	Build Build
+}
+
 type HostBundle struct {
-	ID         string
-	SSH        string
-	Path       string
-	Compose    string
-	Routes     string
-	EnvFiles   []string
-	RemoteDir  string
-	ServiceIDs []string
+	ID           string
+	SSH          string
+	Path         string
+	Compose      string
+	Routes       string
+	EnvFiles     []string
+	RemoteDir    string
+	ServiceIDs   []string
+	PullServices []string
 }
 
 func RenderBundle(root string, plan Plan) (Bundle, error) {
 	vars := VarsForPlan(plan)
+	envValues, err := loadConfigEnv(root, plan.Config.Env)
+	if err != nil {
+		return Bundle{}, err
+	}
 	bundleRoot := filepath.Join(root, ".deploy", "releases", plan.ReleaseID)
 	imagesDir := filepath.Join(bundleRoot, "images")
 	if err := os.MkdirAll(imagesDir, 0755); err != nil {
 		return Bundle{}, fmt.Errorf("create image dir: %w", err)
 	}
 
-	imageTags := RenderTemplates(plan.Config.Build.Tags, vars)
-	if len(imageTags) == 0 {
-		imageTags = []string{fmt.Sprintf("%s:%s", plan.Config.Project.Name, plan.Git.SHA)}
-	}
-	imageTar := filepath.Join(imagesDir, plan.Config.Project.Name+"-"+plan.ReleaseID+".tar")
-
 	bundle := Bundle{
-		Root:      bundleRoot,
-		ImageTar:  imageTar,
-		ImageTags: imageTags,
+		Root: bundleRoot,
+	}
+	for _, image := range renderImageBundles(imagesDir, plan, envValues) {
+		bundle.Images = append(bundle.Images, image)
+	}
+	if len(bundle.Images) > 0 {
+		bundle.ImageTar = bundle.Images[0].Tar
+		bundle.ImageTags = bundle.Images[0].Tags
 	}
 
 	for _, hostPlan := range plan.Hosts {
@@ -90,6 +103,7 @@ func RenderBundle(root string, plan Plan) (Bundle, error) {
 			Volumes:  map[string]ComposeVolume{},
 		}
 		envFiles := []string{}
+		pullServices := []string{}
 
 		for _, serviceID := range hostPlan.Services {
 			service := plan.Config.Services[serviceID]
@@ -101,13 +115,18 @@ func RenderBundle(root string, plan Plan) (Bundle, error) {
 				envFiles = append(envFiles, envFile)
 			}
 
-			composeService := renderComposeService(plan, hostPlan.ID, serviceID, service, vars, envFile)
+			composeService := renderComposeService(plan, hostPlan.ID, serviceID, service, vars, envValues, envFile)
 			compose.Services[serviceID] = composeService
+			if shouldPullService(service) {
+				pullServices = append(pullServices, serviceID)
+			}
 			for _, mount := range service.Volumes {
-				volume := plan.Config.Volumes[mount.Name]
-				compose.Volumes[mount.Name] = ComposeVolume{
-					Driver:   volume.Driver,
-					External: volume.External,
+				if mount.Name != "" {
+					volume := plan.Config.Volumes[mount.Name]
+					compose.Volumes[mount.Name] = ComposeVolume{
+						Driver:   volume.Driver,
+						External: volume.External,
+					}
 				}
 			}
 		}
@@ -119,27 +138,80 @@ func RenderBundle(root string, plan Plan) (Bundle, error) {
 		if err := writeYAML(composePath, compose); err != nil {
 			return Bundle{}, err
 		}
-		routesPath, err := renderCaddyRoutes(hostDir, plan, hostPlan.ID)
+		routesPath, err := renderCaddyRoutes(root, hostDir, plan, hostPlan.ID, envValues)
 		if err != nil {
 			return Bundle{}, err
 		}
 
 		bundle.Hosts = append(bundle.Hosts, HostBundle{
-			ID:         hostPlan.ID,
-			SSH:        hostPlan.SSH,
-			Path:       hostDir,
-			Compose:    composePath,
-			Routes:     routesPath,
-			EnvFiles:   envFiles,
-			RemoteDir:  remoteReleaseDir(plan.Config.Project.Name, plan.ReleaseID),
-			ServiceIDs: hostPlan.Services,
+			ID:           hostPlan.ID,
+			SSH:          hostPlan.SSH,
+			Path:         hostDir,
+			Compose:      composePath,
+			Routes:       routesPath,
+			EnvFiles:     envFiles,
+			RemoteDir:    remoteReleaseDir(plan.Config.Project.Name, plan.ReleaseID),
+			ServiceIDs:   hostPlan.Services,
+			PullServices: pullServices,
 		})
 	}
 
 	return bundle, nil
 }
 
-func renderCaddyRoutes(hostDir string, plan Plan, hostID string) (string, error) {
+func renderImageBundles(imagesDir string, plan Plan, envValues map[string]string) []ImageBundle {
+	vars := VarsForPlan(plan)
+	if len(plan.Config.Builds) == 0 {
+		build := plan.Config.Build
+		tags := RenderTemplates(build.Tags, vars)
+		if len(tags) == 0 {
+			tags = []string{fmt.Sprintf("%s:%s", plan.Config.Project.Name, plan.Git.SHA)}
+		}
+		return []ImageBundle{{
+			ID:    "default",
+			Tar:   filepath.Join(imagesDir, plan.Config.Project.Name+"-"+plan.ReleaseID+".tar"),
+			Tags:  tags,
+			Build: build,
+		}}
+	}
+	out := []ImageBundle{}
+	used := map[string]bool{}
+	for _, item := range sortedMap(plan.Config.Services) {
+		service := item.Value
+		if service.Build == "" || used[service.Build] {
+			continue
+		}
+		build := plan.Config.Builds[service.Build]
+		tags := make([]string, 0, len(build.Tags))
+		for _, tag := range build.Tags {
+			tags = append(tags, RenderValue(tag, plan, "", envValues))
+		}
+		if len(tags) == 0 {
+			tags = []string{fmt.Sprintf("%s-%s:%s", plan.Config.Project.Name, service.Build, plan.Git.SHA)}
+		}
+		out = append(out, ImageBundle{
+			ID:    service.Build,
+			Tar:   filepath.Join(imagesDir, plan.Config.Project.Name+"-"+service.Build+"-"+plan.ReleaseID+".tar"),
+			Tags:  tags,
+			Build: build,
+		})
+		used[service.Build] = true
+	}
+	return out
+}
+
+func loadConfigEnv(root string, env EnvSpec) (map[string]string, error) {
+	if env.Source == "" {
+		return map[string]string{}, nil
+	}
+	values, err := LoadEnvFile(filepath.Join(root, env.Source))
+	if err != nil {
+		return nil, fmt.Errorf("load config env: %w", err)
+	}
+	return values, nil
+}
+
+func renderCaddyRoutes(root string, hostDir string, plan Plan, hostID string, envValues map[string]string) (string, error) {
 	var body strings.Builder
 	for _, route := range plan.Config.Routes {
 		if !routeBelongsToHost(plan.Config, route, hostID) {
@@ -155,6 +227,20 @@ func renderCaddyRoutes(hostDir string, plan Plan, hostID string) (string, error)
 		body.WriteString(target)
 		body.WriteString("\n")
 		body.WriteString("}\n\n")
+	}
+	for _, routeFile := range plan.Config.RouteFiles {
+		if routeFile.Host != hostID {
+			continue
+		}
+		source := filepath.Join(root, routeFile.Source)
+		raw, err := os.ReadFile(source)
+		if err != nil {
+			return "", fmt.Errorf("read route file %s: %w", routeFile.Source, err)
+		}
+		body.WriteString(RenderValue(string(raw), plan, hostID, envValues))
+		if !strings.HasSuffix(body.String(), "\n") {
+			body.WriteByte('\n')
+		}
 	}
 	if body.Len() == 0 {
 		return "", nil
@@ -216,7 +302,7 @@ func routeBelongsToHost(cfg Config, route Route, hostID string) bool {
 	return ok && contains(service.Hosts, hostID)
 }
 
-func renderComposeService(plan Plan, hostID string, serviceID string, service Service, vars RenderVars, envFile string) ComposeService {
+func renderComposeService(plan Plan, hostID string, serviceID string, service Service, vars RenderVars, envValues map[string]string, envFile string) ComposeService {
 	labels := map[string]string{
 		"pp.project":     plan.Config.Project.Name,
 		"pp.environment": plan.Config.Project.Environment,
@@ -226,27 +312,32 @@ func renderComposeService(plan Plan, hostID string, serviceID string, service Se
 	}
 
 	out := ComposeService{
-		Image:      RenderTemplate(service.Image, vars),
-		Restart:    "unless-stopped",
-		Command:    service.Command,
-		Entrypoint: service.Entrypoint,
-		Ports:      renderPorts(plan, hostID, serviceID, service.Ports),
-		Volumes:    renderVolumeMounts(service.Volumes),
-		Labels:     labels,
+		Image:       RenderValue(service.Image, plan, hostID, envValues),
+		Restart:     "unless-stopped",
+		Command:     service.Command,
+		Entrypoint:  service.Entrypoint,
+		Ports:       renderPorts(plan, hostID, serviceID, service.Ports),
+		Volumes:     renderVolumeMounts(service.Volumes),
+		Labels:      labels,
+		Environment: renderEnvironment(plan, hostID, envValues, service.Environment, service.CommandEnv),
 	}
 	if envFile != "" {
 		out.EnvFile = []string{filepath.ToSlash(filepath.Join("env", filepath.Base(envFile)))}
 	}
 	if service.Health.HTTP != "" {
 		out.Healthcheck = &Healthcheck{
-			Test:     []string{"CMD-SHELL", "wget -q --spider " + shellEscapeHealthURL(service.Health.HTTP)},
+			Test:     []string{"CMD-SHELL", "wget -q --spider " + shellEscapeHealthURL(RenderValue(service.Health.HTTP, plan, hostID, envValues))},
 			Interval: "10s",
 			Timeout:  "5s",
 			Retries:  healthRetries(service.Health.TimeoutSeconds),
 		}
 	} else if len(service.Health.Command) > 0 {
+		command := make([]string, 0, len(service.Health.Command))
+		for _, arg := range service.Health.Command {
+			command = append(command, RenderValue(arg, plan, hostID, envValues))
+		}
 		out.Healthcheck = &Healthcheck{
-			Test:     append([]string{"CMD"}, service.Health.Command...),
+			Test:     append([]string{"CMD"}, command...),
 			Interval: "10s",
 			Timeout:  "5s",
 			Retries:  healthRetries(service.Health.TimeoutSeconds),
@@ -309,9 +400,34 @@ func renderPorts(plan Plan, hostID string, serviceID string, ports []Port) []str
 func renderVolumeMounts(mounts []VolumeMount) []string {
 	out := make([]string, 0, len(mounts))
 	for _, mount := range mounts {
-		out = append(out, mount.Name+":"+mount.Target)
+		source := mount.Name
+		if mount.Source != "" {
+			source = mount.Source
+		}
+		value := source + ":" + mount.Target
+		if mount.ReadOnly {
+			value += ":ro"
+		}
+		out = append(out, value)
 	}
 	return out
+}
+
+func renderEnvironment(plan Plan, hostID string, envValues map[string]string, maps ...map[string]string) map[string]string {
+	out := map[string]string{}
+	for _, values := range maps {
+		for key, value := range values {
+			out[key] = RenderValue(value, plan, hostID, envValues)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func shouldPullService(service Service) bool {
+	return service.Pull == "if_missing" || service.Pull == "always"
 }
 
 func healthRetries(timeoutSeconds int) int {

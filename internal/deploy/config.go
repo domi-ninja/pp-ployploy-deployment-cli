@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -14,11 +15,15 @@ import (
 type Config struct {
 	Version    int                `yaml:"version"`
 	Project    Project            `yaml:"project"`
+	Env        EnvSpec            `yaml:"env"`
 	Build      Build              `yaml:"build"`
+	Builds     map[string]Build   `yaml:"builds"`
 	Hosts      map[string]Host    `yaml:"hosts"`
 	Services   map[string]Service `yaml:"services"`
 	Routes     []Route            `yaml:"routes"`
+	RouteFiles []RouteFile        `yaml:"route_files"`
 	Volumes    map[string]Volume  `yaml:"volumes"`
+	Hooks      map[string][]Hook  `yaml:"hooks"`
 	Migrations *Migration         `yaml:"migrations"`
 	Checks     map[string][]Check `yaml:"checks"`
 }
@@ -29,11 +34,12 @@ type Project struct {
 }
 
 type Build struct {
-	Context    string   `yaml:"context"`
-	Dockerfile string   `yaml:"dockerfile"`
-	Target     string   `yaml:"target"`
-	Platforms  []string `yaml:"platforms"`
-	Tags       []string `yaml:"tags"`
+	Context    string            `yaml:"context"`
+	Dockerfile string            `yaml:"dockerfile"`
+	Target     string            `yaml:"target"`
+	Platforms  []string          `yaml:"platforms"`
+	Tags       []string          `yaml:"tags"`
+	Args       map[string]string `yaml:"args"`
 }
 
 type Host struct {
@@ -42,14 +48,19 @@ type Host struct {
 }
 
 type Service struct {
-	Image      string        `yaml:"image"`
-	Hosts      []string      `yaml:"hosts"`
-	Command    []string      `yaml:"command"`
-	Entrypoint []string      `yaml:"entrypoint"`
-	Env        EnvSpec       `yaml:"env"`
-	Ports      []Port        `yaml:"ports"`
-	Volumes    []VolumeMount `yaml:"volumes"`
-	Health     Health        `yaml:"health"`
+	Image       string            `yaml:"image"`
+	Build       string            `yaml:"build"`
+	Pull        string            `yaml:"pull"`
+	Phase       string            `yaml:"phase"`
+	Hosts       []string          `yaml:"hosts"`
+	Command     []string          `yaml:"command"`
+	Entrypoint  []string          `yaml:"entrypoint"`
+	Env         EnvSpec           `yaml:"env"`
+	Environment map[string]string `yaml:"environment"`
+	CommandEnv  map[string]string `yaml:"command_env"`
+	Ports       []Port            `yaml:"ports"`
+	Volumes     []VolumeMount     `yaml:"volumes"`
+	Health      Health            `yaml:"health"`
 }
 
 type Route struct {
@@ -58,6 +69,12 @@ type Route struct {
 	Target     string `yaml:"target"`
 	TargetPort int    `yaml:"target_port"`
 	HostID     string `yaml:"host_id"`
+}
+
+type RouteFile struct {
+	Source   string `yaml:"source"`
+	Host     string `yaml:"host"`
+	DestName string `yaml:"dest_name"`
 }
 
 type EnvSpec struct {
@@ -110,8 +127,11 @@ func AutoPort() PublishedPort {
 }
 
 type VolumeMount struct {
-	Name   string `yaml:"name"`
-	Target string `yaml:"target"`
+	Name     string `yaml:"name"`
+	Source   string `yaml:"source"`
+	Target   string `yaml:"target"`
+	Type     string `yaml:"type"`
+	ReadOnly bool   `yaml:"read_only"`
 }
 
 type Health struct {
@@ -135,6 +155,13 @@ type Migration struct {
 	TimeoutSeconds  int      `yaml:"timeout_seconds"`
 }
 
+type Hook struct {
+	Name           string   `yaml:"name"`
+	Run            []string `yaml:"run"`
+	Env            EnvSpec  `yaml:"env"`
+	TimeoutSeconds int      `yaml:"timeout_seconds"`
+}
+
 type Check struct {
 	Name         string `yaml:"name"`
 	URL          string `yaml:"url"`
@@ -154,6 +181,7 @@ func (e ValidationError) Error() string {
 }
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+var hookPhasePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$`)
 
 func LoadConfig(root string, configPath string) (Config, error) {
 	fullPath := filepath.Join(root, configPath)
@@ -185,8 +213,17 @@ func ValidateConfig(root string, cfg Config) error {
 	}
 	validateSlug(&problems, "project.name", cfg.Project.Name)
 	validateSlug(&problems, "project.environment", cfg.Project.Environment)
-	require(&problems, "build.context", cfg.Build.Context)
-	require(&problems, "build.dockerfile", cfg.Build.Dockerfile)
+	validateEnv(&problems, root, "env", cfg.Env)
+	if len(cfg.Builds) == 0 {
+		require(&problems, "build.context", cfg.Build.Context)
+		require(&problems, "build.dockerfile", cfg.Build.Dockerfile)
+	} else {
+		for _, item := range sortedMap(cfg.Builds) {
+			buildID := item.Key
+			validateSlug(&problems, "builds."+buildID, buildID)
+			validateBuild(&problems, "builds."+buildID, item.Value)
+		}
+	}
 
 	if len(cfg.Hosts) == 0 {
 		problems = append(problems, "hosts must contain at least one host")
@@ -208,6 +245,17 @@ func ValidateConfig(root string, cfg Config) error {
 		service := item.Value
 		validateSlug(&problems, "services."+serviceID, serviceID)
 		require(&problems, "services."+serviceID+".image", service.Image)
+		if service.Build != "" {
+			if _, ok := cfg.Builds[service.Build]; len(cfg.Builds) > 0 && !ok {
+				problems = append(problems, "services."+serviceID+".build references unknown build "+service.Build)
+			}
+		}
+		if service.Pull != "" && service.Pull != "if_missing" && service.Pull != "always" && service.Pull != "never" {
+			problems = append(problems, "services."+serviceID+".pull must be if_missing, always, or never")
+		}
+		if service.Phase != "" {
+			validateSlug(&problems, "services."+serviceID+".phase", service.Phase)
+		}
 		if len(service.Hosts) == 0 {
 			problems = append(problems, "services."+serviceID+".hosts must contain at least one host")
 		}
@@ -236,12 +284,21 @@ func ValidateConfig(root string, cfg Config) error {
 		validateEnv(&problems, root, "services."+serviceID+".env", service.Env)
 		validateHealth(&problems, "services."+serviceID+".health", service.Health, len(service.Ports) > 0)
 		for _, mount := range service.Volumes {
-			if mount.Name == "" {
-				problems = append(problems, "services."+serviceID+".volumes.name is required")
+			if mount.Target == "" {
+				problems = append(problems, "services."+serviceID+".volumes.target is required")
 				continue
 			}
-			if _, ok := cfg.Volumes[mount.Name]; !ok {
-				problems = append(problems, "services."+serviceID+".volumes references unknown volume "+mount.Name)
+			if mount.Name == "" && mount.Source == "" {
+				problems = append(problems, "services."+serviceID+".volumes.name or source is required")
+				continue
+			}
+			if mount.Name != "" {
+				if _, ok := cfg.Volumes[mount.Name]; !ok {
+					problems = append(problems, "services."+serviceID+".volumes references unknown volume "+mount.Name)
+				}
+			}
+			if mount.Type != "" && mount.Type != "bind" && mount.Type != "volume" {
+				problems = append(problems, "services."+serviceID+".volumes.type must be bind or volume")
 			}
 		}
 	}
@@ -274,14 +331,46 @@ func ValidateConfig(root string, cfg Config) error {
 		validateSlug(&problems, "volumes."+volumeID, volumeID)
 	}
 
+	for i, routeFile := range cfg.RouteFiles {
+		field := fmt.Sprintf("route_files[%d]", i)
+		require(&problems, field+".source", routeFile.Source)
+		if routeFile.Source != "" {
+			if _, err := os.Stat(filepath.Join(root, routeFile.Source)); err != nil {
+				problems = append(problems, field+".source "+err.Error())
+			}
+		}
+		require(&problems, field+".host", routeFile.Host)
+		if routeFile.Host != "" {
+			if _, ok := cfg.Hosts[routeFile.Host]; !ok {
+				problems = append(problems, field+".host references unknown host "+routeFile.Host)
+			}
+		}
+	}
+
 	if cfg.Migrations != nil {
 		validateMigration(&problems, root, *cfg.Migrations)
+	}
+	for phase, hooks := range cfg.Hooks {
+		validateHookPhase(&problems, "hooks."+phase, phase)
+		for i, hook := range hooks {
+			validateHook(&problems, root, fmt.Sprintf("hooks.%s[%d]", phase, i), hook)
+		}
 	}
 
 	if len(problems) > 0 {
 		return ValidationError{Problems: problems}
 	}
 	return nil
+}
+
+func validateBuild(problems *[]string, field string, build Build) {
+	require(problems, field+".context", build.Context)
+	require(problems, field+".dockerfile", build.Dockerfile)
+	for key := range build.Args {
+		if strings.TrimSpace(key) == "" {
+			*problems = append(*problems, field+".args has empty key")
+		}
+	}
 }
 
 func validateMigration(problems *[]string, root string, migration Migration) {
@@ -296,6 +385,16 @@ func validateMigration(problems *[]string, root string, migration Migration) {
 		*problems = append(*problems, "migrations.run must be before_services when set")
 	}
 	validateEnv(problems, root, "migrations.env", migration.Env)
+}
+
+func validateHook(problems *[]string, root string, field string, hook Hook) {
+	if strings.TrimSpace(hook.Name) == "" {
+		*problems = append(*problems, field+".name is required")
+	}
+	if len(hook.Run) == 0 {
+		*problems = append(*problems, field+".run must contain at least one argument")
+	}
+	validateEnv(problems, root, field+".env", hook.Env)
 }
 
 func validateEnv(problems *[]string, root string, field string, env EnvSpec) {
@@ -369,6 +468,12 @@ func validateSlug(problems *[]string, field string, value string) {
 	}
 	if !slugPattern.MatchString(value) {
 		*problems = append(*problems, field+" must be a lowercase DNS-safe slug")
+	}
+}
+
+func validateHookPhase(problems *[]string, field string, value string) {
+	if !hookPhasePattern.MatchString(value) {
+		*problems = append(*problems, field+" must be lowercase and contain only letters, numbers, hyphens, or underscores")
 	}
 }
 

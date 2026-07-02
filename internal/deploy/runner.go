@@ -3,6 +3,7 @@ package deploy
 import (
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -17,6 +18,21 @@ func (r Runner) Run(dir string, name string, args ...string) error {
 	cmd.Dir = dir
 	cmd.Stdout = r.Stdout
 	cmd.Stderr = r.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
+	}
+	return nil
+}
+
+func (r Runner) RunEnv(dir string, env map[string]string, name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	cmd.Stdout = r.Stdout
+	cmd.Stderr = r.Stderr
+	cmd.Env = os.Environ()
+	for key, value := range env {
+		cmd.Env = append(cmd.Env, key+"="+value)
+	}
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
 	}

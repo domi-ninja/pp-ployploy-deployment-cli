@@ -50,7 +50,8 @@ func ReleaseID(now time.Time, shortSHA string) string {
 }
 
 func gitOutput(root string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	gitArgs := append([]string{"-c", "safe.directory=" + root}, args...)
+	cmd := exec.Command("git", gitArgs...)
 	cmd.Dir = root
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

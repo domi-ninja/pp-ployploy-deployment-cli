@@ -3,6 +3,7 @@ package deploy
 import (
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -124,23 +125,35 @@ func (d Deployer) Deploy() error {
 }
 
 func (d Deployer) BuildImages(plan Plan, bundle Bundle) error {
-	args := []string{"build", "-f", plan.Config.Build.Dockerfile}
-	if plan.Config.Build.Target != "" {
-		args = append(args, "--target", plan.Config.Build.Target)
-	}
-	if len(plan.Config.Build.Platforms) > 0 {
-		args = append(args, "--platform", plan.Config.Build.Platforms[0])
-	}
-	for _, tag := range bundle.ImageTags {
-		args = append(args, "-t", tag)
-	}
-	args = append(args, plan.Config.Build.Context)
-	if err := d.Runner.Run(d.Root, "docker", args...); err != nil {
+	envValues, err := loadConfigEnv(d.Root, plan.Config.Env)
+	if err != nil {
 		return err
 	}
+	for _, image := range bundle.Images {
+		args := []string{"build", "-f", image.Build.Dockerfile}
+		if image.Build.Target != "" {
+			args = append(args, "--target", image.Build.Target)
+		}
+		if len(image.Build.Platforms) > 0 {
+			args = append(args, "--platform", image.Build.Platforms[0])
+		}
+		for key, value := range image.Build.Args {
+			args = append(args, "--build-arg", key+"="+RenderValue(value, plan, "", envValues))
+		}
+		for _, tag := range image.Tags {
+			args = append(args, "-t", tag)
+		}
+		args = append(args, image.Build.Context)
+		if err := d.Runner.Run(d.Root, "docker", args...); err != nil {
+			return err
+		}
 
-	saveArgs := append([]string{"save", "-o", bundle.ImageTar}, bundle.ImageTags...)
-	return d.Runner.Run(d.Root, "docker", saveArgs...)
+		saveArgs := append([]string{"save", "-o", image.Tar}, image.Tags...)
+		if err := d.Runner.Run(d.Root, "docker", saveArgs...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (d Deployer) RunMigration(plan Plan, rollback bool) error {
@@ -175,16 +188,24 @@ func (d Deployer) runMigration(migration *Migration, image string, rollback bool
 func (d Deployer) ApplyBundle(plan Plan, bundle Bundle) error {
 	for _, host := range bundle.Hosts {
 		fmt.Fprintf(d.Out, "host %s: upload\n", host.ID)
-		if err := d.UploadHostBundle(host, bundle.ImageTar); err != nil {
+		if err := d.UploadHostBundle(host, bundle.Images); err != nil {
 			return fmt.Errorf("host %s upload: %w", host.ID, err)
 		}
-		fmt.Fprintf(d.Out, "host %s: docker load\n", host.ID)
-		if err := d.Remote(host.SSH, "docker load -i "+shellQuote(host.RemoteDir+"/images/"+filepath.Base(bundle.ImageTar))); err != nil {
-			return fmt.Errorf("host %s docker load: %w", host.ID, err)
+		for _, image := range bundle.Images {
+			fmt.Fprintf(d.Out, "host %s: docker load %s\n", host.ID, image.ID)
+			if err := d.Remote(host.SSH, "docker load -i "+shellQuote(host.RemoteDir+"/images/"+filepath.Base(image.Tar))); err != nil {
+				return fmt.Errorf("host %s docker load: %w", host.ID, err)
+			}
+		}
+		if len(host.PullServices) > 0 {
+			fmt.Fprintf(d.Out, "host %s: docker compose pull\n", host.ID)
+			pullCmd := "cd " + shellQuote(host.RemoteDir) + " && docker compose -f compose.yml -p " + shellQuote(plan.Config.Project.Name) + " pull " + shellJoin(host.PullServices)
+			if err := d.Remote(host.SSH, pullCmd); err != nil {
+				return fmt.Errorf("host %s compose pull: %w", host.ID, err)
+			}
 		}
 		fmt.Fprintf(d.Out, "host %s: compose up\n", host.ID)
-		composeCmd := "cd " + shellQuote(host.RemoteDir) + " && docker compose -f compose.yml -p " + shellQuote(plan.Config.Project.Name) + " up -d"
-		if err := d.Remote(host.SSH, composeCmd); err != nil {
+		if err := d.ComposeUp(plan, host, nil, false); err != nil {
 			return fmt.Errorf("host %s compose up: %w", host.ID, err)
 		}
 	}
@@ -192,13 +213,138 @@ func (d Deployer) ApplyBundle(plan Plan, bundle Bundle) error {
 }
 
 func (d Deployer) ApplyRelease(plan Plan, bundle Bundle) error {
-	if err := d.ApplyBundle(plan, bundle); err != nil {
+	if !needsPhasedApply(plan) {
+		if err := d.ApplyBundle(plan, bundle); err != nil {
+			return err
+		}
+		if err := d.ApplyRoutes(plan, bundle); err != nil {
+			return err
+		}
+		return d.RunChecks(plan, "smoke")
+	}
+
+	if err := d.UploadLoadPull(plan, bundle); err != nil {
 		return err
 	}
-	return d.ApplyRoutes(plan, bundle)
+	if err := d.ComposeUpPhase(plan, bundle, []string{"infra", "backend"}, true); err != nil {
+		return err
+	}
+	if err := d.ApplyRoutes(plan, bundle); err != nil {
+		return err
+	}
+	if err := d.RunHooks(plan, "after_backend_healthy"); err != nil {
+		return err
+	}
+	if err := d.RunHooks(plan, "after_services_healthy"); err != nil {
+		return err
+	}
+	if err := d.ComposeUpPhase(plan, bundle, nil, false); err != nil {
+		return err
+	}
+	if err := d.ApplyRoutes(plan, bundle); err != nil {
+		return err
+	}
+	return d.RunChecks(plan, "smoke")
 }
 
-func (d Deployer) UploadHostBundle(host HostBundle, imageTar string) error {
+func (d Deployer) UploadLoadPull(plan Plan, bundle Bundle) error {
+	for _, host := range bundle.Hosts {
+		fmt.Fprintf(d.Out, "host %s: upload\n", host.ID)
+		if err := d.UploadHostBundle(host, bundle.Images); err != nil {
+			return fmt.Errorf("host %s upload: %w", host.ID, err)
+		}
+		for _, image := range bundle.Images {
+			fmt.Fprintf(d.Out, "host %s: docker load %s\n", host.ID, image.ID)
+			if err := d.Remote(host.SSH, "docker load -i "+shellQuote(host.RemoteDir+"/images/"+filepath.Base(image.Tar))); err != nil {
+				return fmt.Errorf("host %s docker load: %w", host.ID, err)
+			}
+		}
+		if len(host.PullServices) > 0 {
+			fmt.Fprintf(d.Out, "host %s: docker compose pull\n", host.ID)
+			pullCmd := "cd " + shellQuote(host.RemoteDir) + " && docker compose -f compose.yml -p " + shellQuote(plan.Config.Project.Name) + " pull " + shellJoin(host.PullServices)
+			if err := d.Remote(host.SSH, pullCmd); err != nil {
+				return fmt.Errorf("host %s compose pull: %w", host.ID, err)
+			}
+		}
+	}
+	return nil
+}
+
+func (d Deployer) ComposeUpPhase(plan Plan, bundle Bundle, phases []string, wait bool) error {
+	for _, host := range bundle.Hosts {
+		services := servicesForPhases(plan, host.ServiceIDs, phases)
+		if phases != nil && len(services) == 0 {
+			continue
+		}
+		fmt.Fprintf(d.Out, "host %s: compose up\n", host.ID)
+		if err := d.ComposeUp(plan, host, services, wait); err != nil {
+			return fmt.Errorf("host %s compose up: %w", host.ID, err)
+		}
+	}
+	return nil
+}
+
+func (d Deployer) ComposeUp(plan Plan, host HostBundle, services []string, wait bool) error {
+	args := []string{"docker compose -f compose.yml -p " + shellQuote(plan.Config.Project.Name) + " up -d"}
+	if wait {
+		args[0] += " --wait"
+	}
+	if len(services) > 0 {
+		args[0] += " " + shellJoin(services)
+	}
+	composeCmd := "cd " + shellQuote(host.RemoteDir) + " && " + args[0]
+	return d.Remote(host.SSH, composeCmd)
+}
+
+func (d Deployer) RunHooks(plan Plan, phase string) error {
+	for _, hook := range plan.Config.Hooks[phase] {
+		if len(hook.Run) == 0 {
+			continue
+		}
+		fmt.Fprintf(d.Out, "hook %s: %s\n", phase, hook.Name)
+		env := map[string]string{}
+		if hook.Env.Source != "" {
+			values, err := LoadEnvFile(filepath.Join(d.Root, hook.Env.Source))
+			if err != nil {
+				return fmt.Errorf("hook %s env: %w", hook.Name, err)
+			}
+			env = values
+		}
+		if err := d.Runner.RunEnv(d.Root, env, hook.Run[0], hook.Run[1:]...); err != nil {
+			return fmt.Errorf("hook %s: %w", hook.Name, err)
+		}
+	}
+	return nil
+}
+
+func (d Deployer) RunChecks(plan Plan, group string) error {
+	checks := plan.Config.Checks[group]
+	if len(checks) == 0 {
+		return nil
+	}
+	client := http.Client{Timeout: 15 * time.Second}
+	for _, check := range checks {
+		if check.URL == "" {
+			continue
+		}
+		fmt.Fprintf(d.Out, "check %s: %s\n", check.Name, check.URL)
+		resp, err := client.Get(check.URL)
+		if err != nil {
+			return fmt.Errorf("check %s: %w", check.Name, err)
+		}
+		_ = resp.Body.Close()
+		expected := check.ExpectStatus
+		if expected == 0 {
+			expected = http.StatusOK
+		}
+		if resp.StatusCode != expected {
+			return fmt.Errorf("check %s: got status %d, want %d", check.Name, resp.StatusCode, expected)
+		}
+	}
+	return nil
+}
+
+func (d Deployer) UploadHostBundle(host HostBundle, images []ImageBundle) error {
 	if err := d.Remote(host.SSH, "mkdir -p "+shellQuote(host.RemoteDir)+"/env "+shellQuote(host.RemoteDir)+"/images"); err != nil {
 		return err
 	}
@@ -215,7 +361,12 @@ func (d Deployer) UploadHostBundle(host HostBundle, imageTar string) error {
 			return err
 		}
 	}
-	return d.Copy(imageTar, host.SSH, host.RemoteDir+"/images/"+filepath.Base(imageTar))
+	for _, image := range images {
+		if err := d.Copy(image.Tar, host.SSH, host.RemoteDir+"/images/"+filepath.Base(image.Tar)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (d Deployer) ApplyRoutes(plan Plan, bundle Bundle) error {
@@ -329,6 +480,14 @@ func recordFromPlan(plan Plan, bundle Bundle, previousReleaseID string) ReleaseR
 			Status:    "planned",
 		})
 	}
+	images := make([]ImageRecord, 0, len(bundle.Images))
+	for _, image := range bundle.Images {
+		images = append(images, ImageRecord{
+			ID:   image.ID,
+			Tar:  image.Tar,
+			Tags: image.Tags,
+		})
+	}
 	now := time.Now().UTC()
 	return ReleaseRecord{
 		Project:           plan.Config.Project.Name,
@@ -338,6 +497,7 @@ func recordFromPlan(plan Plan, bundle Bundle, previousReleaseID string) ReleaseR
 		Git:               plan.Git,
 		ImageTags:         bundle.ImageTags,
 		ImageTar:          bundle.ImageTar,
+		Images:            images,
 		BundlePath:        bundle.Root,
 		RemoteBase:        ".pp/" + plan.Config.Project.Name,
 		Hosts:             hosts,
@@ -365,10 +525,22 @@ func bundleFromRecord(record ReleaseRecord) Bundle {
 			ServiceIDs: host.Services,
 		})
 	}
+	images := []ImageBundle{}
+	for _, image := range record.Images {
+		images = append(images, ImageBundle{
+			ID:   image.ID,
+			Tar:  image.Tar,
+			Tags: image.Tags,
+		})
+	}
+	if len(images) == 0 && record.ImageTar != "" {
+		images = append(images, ImageBundle{ID: "default", Tar: record.ImageTar, Tags: record.ImageTags})
+	}
 	return Bundle{
 		Root:      record.BundlePath,
 		ImageTar:  record.ImageTar,
 		ImageTags: record.ImageTags,
+		Images:    images,
 		Hosts:     hosts,
 	}
 }
@@ -393,4 +565,42 @@ func existingFile(path string) string {
 		}
 	}
 	return ""
+}
+
+func needsPhasedApply(plan Plan) bool {
+	if len(plan.Config.Hooks) > 0 {
+		return true
+	}
+	for _, service := range plan.Config.Services {
+		if service.Phase != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func servicesForPhases(plan Plan, serviceIDs []string, phases []string) []string {
+	if phases == nil {
+		return serviceIDs
+	}
+	wanted := map[string]bool{}
+	for _, phase := range phases {
+		wanted[phase] = true
+	}
+	out := []string{}
+	for _, serviceID := range serviceIDs {
+		service := plan.Config.Services[serviceID]
+		if wanted[service.Phase] {
+			out = append(out, serviceID)
+		}
+	}
+	return out
+}
+
+func shellJoin(values []string) string {
+	quoted := make([]string, 0, len(values))
+	for _, value := range values {
+		quoted = append(quoted, shellQuote(value))
+	}
+	return strings.Join(quoted, " ")
 }

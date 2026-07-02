@@ -1,6 +1,9 @@
 package deploy
 
 import (
+	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -121,5 +124,170 @@ func TestRenderBundleUsesAllocatedAutoPortForComposeAndRoute(t *testing.T) {
 	}
 	if !strings.Contains(string(routes), "reverse_proxy http://127.0.0.1:18001") {
 		t.Fatalf("route missing allocated auto port:\n%s", string(routes))
+	}
+}
+
+func TestRenderBundleSupportsConvexStyleExtensions(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, ".env.local", "VITE_SITE_URL=https://humanist.design\nVITE_CONVEX_URL=https://api.humanist.design\n")
+	writeFile(t, root, ".env.backend", "POSTGRES_URL=postgres://humanist:secret@postgres:5432/humanist\n")
+	writeFile(t, root, "humanist.caddy.tmpl", "api.humanist.design {\n\treverse_proxy 127.0.0.1:${service.convex-backend.port.3210}\n}\n")
+	cfg := Config{
+		Version: 1,
+		Project: Project{
+			Name:        "humanist-design",
+			Environment: "prod",
+		},
+		Env: EnvSpec{Source: ".env.local"},
+		Builds: map[string]Build{
+			"web": {
+				Context:    ".",
+				Dockerfile: "Dockerfile",
+				Tags:       []string{"humanist-design-web:${release}"},
+				Args: map[string]string{
+					"VITE_SITE_URL": "${env.VITE_SITE_URL}",
+				},
+			},
+		},
+		Hosts: map[string]Host{
+			"p3": {SSH: "deploy@p3.domi.ninja"},
+		},
+		Services: map[string]Service{
+			"web": {
+				Image:  "humanist-design-web:${release}",
+				Build:  "web",
+				Phase:  "frontend",
+				Hosts:  []string{"p3"},
+				Ports:  []Port{{Published: AutoPort(), Target: 80}},
+				Health: Health{HTTP: "https://humanist.design/"},
+			},
+			"convex-backend": {
+				Image:  "ghcr.io/get-convex/convex-backend:latest",
+				Pull:   "if_missing",
+				Phase:  "backend",
+				Hosts:  []string{"p3"},
+				Env:    EnvSpec{Source: ".env.backend", Required: []string{"POSTGRES_URL"}},
+				Ports:  []Port{{Published: AutoPort(), Target: 3210}},
+				Health: Health{Command: []string{"curl", "-sf", "http://127.0.0.1:3210/version"}},
+			},
+			"s3": {
+				Image:       "minio/minio:latest",
+				Pull:        "if_missing",
+				Phase:       "infra",
+				Hosts:       []string{"p3"},
+				Command:     []string{"server", "/data"},
+				Environment: map[string]string{"MINIO_BROWSER_REDIRECT_URL": "${env.VITE_SITE_URL}"},
+				Volumes:     []VolumeMount{{Source: "/data/pp/humanist-design/s3", Target: "/data", Type: "bind"}},
+				Health:      Health{Command: []string{"curl", "-sf", "http://127.0.0.1:9000/minio/health/ready"}},
+			},
+		},
+		RouteFiles: []RouteFile{{
+			Source: "humanist.caddy.tmpl",
+			Host:   "p3",
+		}},
+		Hooks: map[string][]Hook{
+			"after_backend_healthy": {{
+				Name: "sync convex",
+				Run:  []string{"npx", "convex", "dev", "--once", "--env-file", ".env.local"},
+				Env:  EnvSpec{Source: ".env.local", Required: []string{"VITE_SITE_URL"}},
+			}},
+		},
+	}
+	if err := ValidateConfig(root, cfg); err != nil {
+		t.Fatalf("expected valid config, got %v", err)
+	}
+	git := GitMetadata{SHA: "abcdef1234567890", ShortSHA: "abcdef1"}
+	plan := BuildPlan(cfg, git, time.Date(2026, 6, 28, 10, 0, 0, 0, time.UTC))
+	plan.SetAutoPort("p3", "web", 80, 18001)
+	plan.SetAutoPort("p3", "convex-backend", 3210, 18002)
+
+	bundle, err := RenderBundle(root, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle.Images) != 1 {
+		t.Fatalf("expected one local image, got %d", len(bundle.Images))
+	}
+	if bundle.Images[0].ID != "web" || bundle.Images[0].Tags[0] != "humanist-design-web:20260628T100000Z-abcdef1" {
+		t.Fatalf("unexpected image bundle: %#v", bundle.Images[0])
+	}
+	host := bundle.Hosts[0]
+	if strings.Join(host.PullServices, ",") != "convex-backend,s3" {
+		t.Fatalf("unexpected pull services: %#v", host.PullServices)
+	}
+	compose, err := os.ReadFile(filepath.Join(bundle.Root, "hosts", "p3", "compose.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	composeText := string(compose)
+	for _, wanted := range []string{
+		"image: humanist-design-web:20260628T100000Z-abcdef1",
+		"- 127.0.0.1:18001:80",
+		"- 127.0.0.1:18002:3210",
+		"- /data/pp/humanist-design/s3:/data",
+		"MINIO_BROWSER_REDIRECT_URL: https://humanist.design",
+	} {
+		if !strings.Contains(composeText, wanted) {
+			t.Fatalf("compose missing %q:\n%s", wanted, composeText)
+		}
+	}
+	routes, err := os.ReadFile(filepath.Join(bundle.Root, "hosts", "p3", "routes.caddy"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(routes), "reverse_proxy 127.0.0.1:18002") {
+		t.Fatalf("route template was not rendered:\n%s", string(routes))
+	}
+}
+
+func TestReleaseRecordPreservesMultipleImageBundles(t *testing.T) {
+	plan := BuildPlan(validConfig(), GitMetadata{SHA: "abcdef1234567890", ShortSHA: "abcdef1"}, time.Date(2026, 6, 28, 10, 0, 0, 0, time.UTC))
+	bundle := Bundle{
+		Root:      "/tmp/release",
+		ImageTar:  "/tmp/release/images/web.tar",
+		ImageTags: []string{"web:release"},
+		Images: []ImageBundle{
+			{ID: "web", Tar: "/tmp/release/images/web.tar", Tags: []string{"web:release"}},
+			{ID: "worker", Tar: "/tmp/release/images/worker.tar", Tags: []string{"worker:release"}},
+		},
+		Hosts: []HostBundle{{
+			ID:         "app-01",
+			SSH:        "deploy@app-01.example.com",
+			RemoteDir:  ".pp/quotes/releases/release",
+			ServiceIDs: []string{"web"},
+		}},
+	}
+
+	record := recordFromPlan(plan, bundle, "")
+	if len(record.Images) != 2 {
+		t.Fatalf("expected two image records, got %#v", record.Images)
+	}
+	roundTrip := bundleFromRecord(record)
+	if len(roundTrip.Images) != 2 || roundTrip.Images[1].ID != "worker" {
+		t.Fatalf("expected image bundles to round trip, got %#v", roundTrip.Images)
+	}
+}
+
+func TestRunChecksValidatesExpectedStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	plan := BuildPlan(validConfig(), GitMetadata{SHA: "abcdef1234567890", ShortSHA: "abcdef1"}, time.Date(2026, 6, 28, 10, 0, 0, 0, time.UTC))
+	plan.Config.Checks = map[string][]Check{
+		"smoke": {{
+			Name:         "empty",
+			URL:          server.URL,
+			ExpectStatus: http.StatusNoContent,
+		}},
+	}
+	var out bytes.Buffer
+	deployer := Deployer{Root: t.TempDir(), Out: &out, Err: &out}
+	if err := deployer.RunChecks(plan, "smoke"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "check empty:") {
+		t.Fatalf("expected check output, got %q", out.String())
 	}
 }
