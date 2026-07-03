@@ -18,13 +18,26 @@ Restore the previous known-good code and DB state with a single command.
 - Run health checks after rollback.
 - Update deployment records with rollback metadata.
 
+## Existing Baseline
+
+- `pp rollback` exists.
+- Local state records current and previous release IDs.
+- Rollback reuses previous bundle metadata and does not rebuild images.
+- Failed deploy apply attempts to re-apply the previous release.
+- If a configured migration ran and a later step fails, deploy attempts the migration rollback command.
+- Basic rollback metadata is present in release metadata.
+
+This ticket remains open because the current rollback path is operationally useful but not yet rigorous enough to be the trusted recovery mechanism.
+
 ## Deliverables
 
-- `deploy rollback` implementation.
-- Previous-release selector.
-- DB rollback executor.
-- Rollback metadata format.
-- Tests for missing previous release and successful rollback planning.
+- Hardened `deploy rollback` implementation.
+- Previous verified release selector.
+- Remote artifact verifier.
+- Partial-host rollback planner.
+- DB rollback/restore-plan executor with clear failure behavior.
+- Rollback metadata format that records attempted hosts, DB rollback/restore state, health checks, and errors.
+- Tests for missing previous release, missing host artifacts, restore-plan-only migrations, partial-host rollback, and successful rollback planning.
 
 ## Acceptance Criteria
 
@@ -34,3 +47,5 @@ Restore the previous known-good code and DB state with a single command.
 - Successful rollback updates host state.
 - Failed rollback preserves logs and current observed state.
 - Rollback is invoked automatically after failed host apply or failed smoke check when migration already succeeded.
+- Rollback uses SSH-observed state from ticket 011 when deciding what advanced and what needs rollback.
+- Rollback health checks are recorded separately from deploy smoke checks.
