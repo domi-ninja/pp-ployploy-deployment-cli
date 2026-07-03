@@ -35,6 +35,16 @@ Run explicit prod DB migrations and post-deploy smoke checks safely.
 - Failed smoke check marks release failed and points to rollback.
 - DB rollback metadata is recorded for `deploy rollback`.
 
+## Completion Notes
+
+Completed against `../humanist.design` on p3.
+
+- `pp` supports HTTP smoke checks, command smoke checks, redirect assertions, check timeouts, and smoke-check metadata.
+- Migration and hook timeout fields are enforced.
+- Migration metadata records command, image, env source, timing, and error state.
+- Humanist deploy uses `.env.prod` for production deploy input and `.env.local` for local dev.
+- Humanist production deploy passed frontend, redirect, Convex version, dashboard, HTTP action, Convex query, and Playwright landing-page smoke checks.
+
 ## Humanist Test Plan
 
 Use `../humanist.design` as the concrete acceptance test for this ticket.
