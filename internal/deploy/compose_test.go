@@ -284,10 +284,80 @@ func TestRunChecksValidatesExpectedStatus(t *testing.T) {
 	}
 	var out bytes.Buffer
 	deployer := Deployer{Root: t.TempDir(), Out: &out, Err: &out}
-	if err := deployer.RunChecks(plan, "smoke"); err != nil {
+	records, err := deployer.RunChecks(plan, "smoke")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Status != "ok" || records[0].ActualStatus != http.StatusNoContent {
+		t.Fatalf("unexpected check records: %#v", records)
 	}
 	if !strings.Contains(out.String(), "check empty:") {
 		t.Fatalf("expected check output, got %q", out.String())
+	}
+}
+
+func TestRunChecksCanValidateRedirectWithoutFollowing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", "/target")
+		w.WriteHeader(http.StatusPermanentRedirect)
+	}))
+	defer server.Close()
+
+	followRedirects := false
+	plan := BuildPlan(validConfig(), GitMetadata{SHA: "abcdef1234567890", ShortSHA: "abcdef1"}, time.Date(2026, 6, 28, 10, 0, 0, 0, time.UTC))
+	plan.Config.Checks = map[string][]Check{
+		"smoke": {{
+			Name:            "www redirect",
+			URL:             server.URL,
+			ExpectStatus:    http.StatusPermanentRedirect,
+			FollowRedirects: &followRedirects,
+		}},
+	}
+	var out bytes.Buffer
+	deployer := Deployer{Root: t.TempDir(), Out: &out, Err: &out}
+	records, err := deployer.RunChecks(plan, "smoke")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].ActualStatus != http.StatusPermanentRedirect || records[0].FollowRedirects {
+		t.Fatalf("unexpected redirect record: %#v", records)
+	}
+}
+
+func TestRunChecksSupportsCommandChecksWithEnv(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, ".env.prod", "SMOKE_VALUE=ok\n")
+	plan := BuildPlan(validConfig(), GitMetadata{SHA: "abcdef1234567890", ShortSHA: "abcdef1"}, time.Date(2026, 6, 28, 10, 0, 0, 0, time.UTC))
+	plan.Config.Checks = map[string][]Check{
+		"smoke": {{
+			Name:    "command",
+			Command: []string{"/bin/sh", "-c", "test \"$SMOKE_VALUE\" = ok"},
+			Env:     EnvSpec{Source: ".env.prod", Required: []string{"SMOKE_VALUE"}},
+		}},
+	}
+	var out bytes.Buffer
+	deployer := Deployer{Root: root, Out: &out, Err: &out}
+	records, err := deployer.RunChecks(plan, "smoke")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Type != "command" || records[0].EnvSource != ".env.prod" || records[0].Status != "ok" {
+		t.Fatalf("unexpected command check records: %#v", records)
+	}
+}
+
+func TestDownProjectContainersCommandUsesProjectLabel(t *testing.T) {
+	command := downProjectContainersCommand("humanist-design")
+	for _, wanted := range []string{
+		"docker ps -aq --filter 'label=pp.project=humanist-design'",
+		"docker rm -f $ids",
+		"no containers for project humanist-design",
+	} {
+		if !strings.Contains(command, wanted) {
+			t.Fatalf("down command missing %q: %s", wanted, command)
+		}
+	}
+	if strings.Contains(command, "docker volume") || strings.Contains(command, "docker system") {
+		t.Fatalf("down command should not remove data: %s", command)
 	}
 }

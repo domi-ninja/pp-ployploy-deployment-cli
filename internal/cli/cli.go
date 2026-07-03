@@ -17,6 +17,8 @@ func Main(name string, args []string, stdout io.Writer, stderr io.Writer) int {
 	switch args[0] {
 	case "deploy":
 		return runDeploy(stdout, stderr)
+	case "down":
+		return runDown(stdout, stderr)
 	case "init":
 		return runInit(stdout, stderr)
 	case "plan":
@@ -33,6 +35,19 @@ func Main(name string, args []string, stdout io.Writer, stderr io.Writer) int {
 		printHelp(name, stderr)
 		return 2
 	}
+}
+
+func runDown(stdout io.Writer, stderr io.Writer) int {
+	wd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(stderr, "error: read working directory: %v\n", err)
+		return 1
+	}
+	if err := deploy.NewDeployer(wd, stdout, stderr).Down(); err != nil {
+		printError(stderr, err)
+		return 1
+	}
+	return 0
 }
 
 func runDeploy(stdout io.Writer, stderr io.Writer) int {
@@ -129,6 +144,7 @@ func printHelp(name string, w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "commands:")
 	fmt.Fprintln(w, "  deploy    build, transfer, and apply the release")
+	fmt.Fprintln(w, "  down      remove all remote containers for the project")
 	fmt.Fprintln(w, "  init      create a starter deploy.yml")
 	fmt.Fprintln(w, "  plan      validate deploy.yml and print host/service placement")
 	fmt.Fprintln(w, "  status    show local deployment state")

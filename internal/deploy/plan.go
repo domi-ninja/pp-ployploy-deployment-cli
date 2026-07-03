@@ -103,6 +103,9 @@ func PrintPlan(w io.Writer, plan Plan) {
 	if plan.Git.Dirty {
 		fmt.Fprintf(w, "worktree_diff_digest: %s\n", plan.Git.DiffDigest)
 	}
+	if plan.Config.Env.Source != "" {
+		fmt.Fprintf(w, "env_source: %s\n", plan.Config.Env.Source)
+	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "hosts:")
 	for _, host := range plan.Hosts {
@@ -117,7 +120,17 @@ func PrintPlan(w io.Writer, plan Plan) {
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, "migration:")
 		fmt.Fprintf(w, "  image: %s\n", plan.Config.Migrations.Image)
+		if plan.Config.Migrations.Env.Source != "" {
+			fmt.Fprintf(w, "  env_source: %s\n", plan.Config.Migrations.Env.Source)
+		}
 		fmt.Fprintf(w, "  rollback: %t\n", len(plan.Config.Migrations.RollbackCommand) > 0 || plan.Config.Migrations.RestorePlan != "")
+	}
+	if len(plan.Config.Checks) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "checks:")
+		for _, group := range sortedMap(plan.Config.Checks) {
+			fmt.Fprintf(w, "  %s: %d\n", group.Key, len(group.Value))
+		}
 	}
 }
 

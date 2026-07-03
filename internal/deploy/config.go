@@ -163,9 +163,13 @@ type Hook struct {
 }
 
 type Check struct {
-	Name         string `yaml:"name"`
-	URL          string `yaml:"url"`
-	ExpectStatus int    `yaml:"expect_status"`
+	Name            string   `yaml:"name"`
+	URL             string   `yaml:"url"`
+	ExpectStatus    int      `yaml:"expect_status"`
+	FollowRedirects *bool    `yaml:"follow_redirects"`
+	Command         []string `yaml:"command"`
+	Env             EnvSpec  `yaml:"env"`
+	TimeoutSeconds  int      `yaml:"timeout_seconds"`
 }
 
 type ValidationError struct {
@@ -356,6 +360,12 @@ func ValidateConfig(root string, cfg Config) error {
 			validateHook(&problems, root, fmt.Sprintf("hooks.%s[%d]", phase, i), hook)
 		}
 	}
+	for group, checks := range cfg.Checks {
+		validateHookPhase(&problems, "checks."+group, group)
+		for i, check := range checks {
+			validateCheck(&problems, root, fmt.Sprintf("checks.%s[%d]", group, i), check)
+		}
+	}
 
 	if len(problems) > 0 {
 		return ValidationError{Problems: problems}
@@ -395,6 +405,25 @@ func validateHook(problems *[]string, root string, field string, hook Hook) {
 		*problems = append(*problems, field+".run must contain at least one argument")
 	}
 	validateEnv(problems, root, field+".env", hook.Env)
+}
+
+func validateCheck(problems *[]string, root string, field string, check Check) {
+	if strings.TrimSpace(check.Name) == "" {
+		*problems = append(*problems, field+".name is required")
+	}
+	hasURL := strings.TrimSpace(check.URL) != ""
+	hasCommand := len(check.Command) > 0
+	if hasURL == hasCommand {
+		*problems = append(*problems, field+" must declare exactly one of url or command")
+	}
+	if hasURL {
+		if err := validateRouteTarget(check.URL); err != nil {
+			*problems = append(*problems, field+".url "+err.Error())
+		}
+	}
+	if hasCommand {
+		validateEnv(problems, root, field+".env", check.Env)
+	}
 }
 
 func validateEnv(problems *[]string, root string, field string, env EnvSpec) {

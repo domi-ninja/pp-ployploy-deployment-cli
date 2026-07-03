@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -25,7 +26,11 @@ func (r Runner) Run(dir string, name string, args ...string) error {
 }
 
 func (r Runner) RunEnv(dir string, env map[string]string, name string, args ...string) error {
-	cmd := exec.Command(name, args...)
+	return r.RunEnvContext(context.Background(), dir, env, name, args...)
+}
+
+func (r Runner) RunEnvContext(ctx context.Context, dir string, env map[string]string, name string, args ...string) error {
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	cmd.Stdout = r.Stdout
 	cmd.Stderr = r.Stderr
@@ -34,6 +39,9 @@ func (r Runner) RunEnv(dir string, env map[string]string, name string, args ...s
 		cmd.Env = append(cmd.Env, key+"="+value)
 	}
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), ctx.Err())
+		}
 		return fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
 	}
 	return nil

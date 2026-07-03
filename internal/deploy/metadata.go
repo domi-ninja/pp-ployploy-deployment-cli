@@ -24,6 +24,7 @@ type ReleaseRecord struct {
 	Migration         StepRecord    `json:"migration"`
 	Apply             StepRecord    `json:"apply"`
 	Rollback          StepRecord    `json:"rollback"`
+	Checks            []CheckRecord `json:"checks,omitempty"`
 	Status            string        `json:"status"`
 	CreatedAt         time.Time     `json:"created_at"`
 	UpdatedAt         time.Time     `json:"updated_at"`
@@ -44,9 +45,31 @@ type HostRecord struct {
 }
 
 type StepRecord struct {
-	Status string    `json:"status"`
-	Error  string    `json:"error,omitempty"`
-	At     time.Time `json:"at,omitempty"`
+	Status      string    `json:"status"`
+	Error       string    `json:"error,omitempty"`
+	At          time.Time `json:"at,omitempty"`
+	StartedAt   time.Time `json:"started_at,omitempty"`
+	FinishedAt  time.Time `json:"finished_at,omitempty"`
+	Command     []string  `json:"command,omitempty"`
+	Image       string    `json:"image,omitempty"`
+	EnvSource   string    `json:"env_source,omitempty"`
+	RestorePlan string    `json:"restore_plan,omitempty"`
+}
+
+type CheckRecord struct {
+	Group           string    `json:"group"`
+	Name            string    `json:"name"`
+	Type            string    `json:"type"`
+	Target          string    `json:"target"`
+	ExpectedStatus  int       `json:"expected_status,omitempty"`
+	ActualStatus    int       `json:"actual_status,omitempty"`
+	FollowRedirects bool      `json:"follow_redirects,omitempty"`
+	EnvSource       string    `json:"env_source,omitempty"`
+	Status          string    `json:"status"`
+	Error           string    `json:"error,omitempty"`
+	StartedAt       time.Time `json:"started_at"`
+	FinishedAt      time.Time `json:"finished_at"`
+	DurationMS      int64     `json:"duration_ms"`
 }
 
 type State struct {
