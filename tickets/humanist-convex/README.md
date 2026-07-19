@@ -10,7 +10,7 @@ These are separate from the main generic `pp` tickets because they include app-s
 
 ## Done
 
-1. [001 - Extend pp For Multi-Service Convex Deploys](001-extend-pp-for-multi-service-convex-deploys.md)
-2. [002 - Add Humanist Deployment Files](002-add-humanist-deployment-files.md)
-3. [003 - Wire p3 Convex Runtime Services](003-wire-p3-convex-runtime-services.md)
-4. [004 - Verify First Humanist Deploy](004-verify-first-humanist-deploy.md)
+1. [001 - Extend pp For Multi-Service Convex Deploys](done/001-extend-pp-for-multi-service-convex-deploys.md)
+2. [002 - Add Humanist Deployment Files](done/002-add-humanist-deployment-files.md)
+3. [003 - Wire p3 Convex Runtime Services](done/003-wire-p3-convex-runtime-services.md)
+4. [004 - Verify First Humanist Deploy](done/004-verify-first-humanist-deploy.md)
