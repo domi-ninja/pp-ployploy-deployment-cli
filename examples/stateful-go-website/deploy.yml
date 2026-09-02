@@ -1,0 +1,41 @@
+version: 1
+
+project:
+  name: gotths-example
+  environment: prod
+
+build:
+  context: .
+  dockerfile: Dockerfile
+  tags:
+    - "gotths-example:${git_sha}"
+
+hosts:
+  p3:
+    ssh: deploy@167.233.42.13
+    roles: [web]
+
+services:
+  web:
+    image: "gotths-example:${git_sha}"
+    hosts: [p3]
+    env:
+      source: ".env"
+      required: ["JWT_SECRET"]
+    ports:
+      - published: auto
+        target: 5000
+    volumes:
+      - name: gotths-data
+        target: /data
+    health:
+      command: ["wget", "-q", "-O", "/dev/null", "http://127.0.0.1:5000/health"]
+      timeout_seconds: 60
+
+routes:
+  - host: gotths.vandalize.site
+    service: web
+
+volumes:
+  gotths-data:
+    driver: local

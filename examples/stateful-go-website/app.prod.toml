@@ -1,0 +1,14 @@
+[server]
+port = 5000
+bind_address = "0.0.0.0"
+
+[site]
+app_path = ""
+title = "Gotths App"
+description = "Cool forum app"
+default_image = "/assets/logo.jpg"
+keywords = "Forum, Anonymous, Sample App"
+
+[cache]
+default_expiration = "5m"
+cleanup_interval = "10m"

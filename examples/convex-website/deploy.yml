@@ -1,0 +1,256 @@
+version: 1
+
+project:
+  name: humanist-design
+  environment: prod
+
+env:
+  source: .env.prod
+  required:
+    - VITE_SITE_URL
+    - VITE_CONVEX_URL
+    - VITE_CONVEX_SITE_URL
+    - CONVEX_SELF_HOSTED_URL
+    - INSTANCE_NAME
+    - INSTANCE_SECRET
+    - POSTGRES_DB
+    - POSTGRES_USER
+    - POSTGRES_PASSWORD
+    - POSTGRES_URL
+    - DATABASE_URL
+    - MINIO_ROOT_USER
+    - MINIO_ROOT_PASSWORD
+    - AWS_ACCESS_KEY_ID
+    - AWS_SECRET_ACCESS_KEY
+    - AWS_S3_DISABLE_SSE
+    - S3_STORAGE_EXPORTS_BUCKET
+    - S3_STORAGE_SNAPSHOT_IMPORTS_BUCKET
+    - S3_STORAGE_MODULES_BUCKET
+    - S3_STORAGE_FILES_BUCKET
+    - S3_STORAGE_SEARCH_BUCKET
+
+builds:
+  web:
+    context: .
+    dockerfile: Dockerfile
+    target: runtime
+    tags:
+      - humanist-design-web:${release}
+    args:
+      VITE_SITE_URL: ${env.VITE_SITE_URL}
+      VITE_CONVEX_URL: ${env.VITE_CONVEX_URL}
+      VITE_CONVEX_SITE_URL: ${env.VITE_CONVEX_SITE_URL}
+
+hosts:
+  p3:
+    ssh: deploy@p3.domi.ninja
+    roles: [web, convex]
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    pull: if_missing
+    phase: infra
+    hosts: [p3]
+    env:
+      source: .env.prod
+      required:
+        - POSTGRES_DB
+        - POSTGRES_USER
+        - POSTGRES_PASSWORD
+    environment:
+      POSTGRES_DB: ${env.POSTGRES_DB}
+      POSTGRES_USER: ${env.POSTGRES_USER}
+      POSTGRES_PASSWORD: ${env.POSTGRES_PASSWORD}
+    volumes:
+      - source: /data/pp/humanist-design/postgres
+        target: /var/lib/postgresql/data
+        type: bind
+    health:
+      command: ["pg_isready", "-U", "${env.POSTGRES_USER}", "-d", "${env.POSTGRES_DB}"]
+      timeout_seconds: 60
+
+  s3:
+    image: minio/minio:latest
+    pull: if_missing
+    phase: infra
+    hosts: [p3]
+    command: ["server", "/data", "--console-address", ":9001"]
+    env:
+      source: .env.prod
+      required:
+        - MINIO_ROOT_USER
+        - MINIO_ROOT_PASSWORD
+    environment:
+      MINIO_ROOT_USER: ${env.MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${env.MINIO_ROOT_PASSWORD}
+    volumes:
+      - source: /data/pp/humanist-design/s3
+        target: /data
+        type: bind
+    ports:
+      - published: auto
+        target: 9001
+    health:
+      command: ["curl", "-sf", "http://127.0.0.1:9000/minio/health/ready"]
+      timeout_seconds: 60
+
+  convex-backend:
+    image: ghcr.io/get-convex/convex-backend:latest
+    pull: if_missing
+    phase: backend
+    hosts: [p3]
+    env:
+      source: .env.prod
+      required:
+        - INSTANCE_NAME
+        - INSTANCE_SECRET
+        - POSTGRES_URL
+        - DATABASE_URL
+        - AWS_ACCESS_KEY_ID
+        - AWS_SECRET_ACCESS_KEY
+        - AWS_S3_DISABLE_SSE
+        - S3_STORAGE_EXPORTS_BUCKET
+        - S3_STORAGE_SNAPSHOT_IMPORTS_BUCKET
+        - S3_STORAGE_MODULES_BUCKET
+        - S3_STORAGE_FILES_BUCKET
+        - S3_STORAGE_SEARCH_BUCKET
+    environment:
+      INSTANCE_NAME: ${env.INSTANCE_NAME}
+      INSTANCE_SECRET: ${env.INSTANCE_SECRET}
+      CONVEX_CLOUD_ORIGIN: https://api.humanist.design
+      NEXT_PUBLIC_DEPLOYMENT_URL: https://api.humanist.design
+      CONVEX_SITE_ORIGIN: https://api.humanist.design
+      SITE_URL: https://humanist.design
+      POSTGRES_URL: ${env.POSTGRES_URL}
+      DATABASE_URL: ${env.DATABASE_URL}
+      DO_NOT_REQUIRE_SSL: "1"
+      RUST_LOG: info
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: ${env.AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${env.AWS_SECRET_ACCESS_KEY}
+      AWS_S3_FORCE_PATH_STYLE: "true"
+      AWS_S3_DISABLE_SSE: ${env.AWS_S3_DISABLE_SSE}
+      S3_ENDPOINT_URL: http://s3:9000
+      S3_STORAGE_EXPORTS_BUCKET: ${env.S3_STORAGE_EXPORTS_BUCKET}
+      S3_STORAGE_SNAPSHOT_IMPORTS_BUCKET: ${env.S3_STORAGE_SNAPSHOT_IMPORTS_BUCKET}
+      S3_STORAGE_MODULES_BUCKET: ${env.S3_STORAGE_MODULES_BUCKET}
+      S3_STORAGE_FILES_BUCKET: ${env.S3_STORAGE_FILES_BUCKET}
+      S3_STORAGE_SEARCH_BUCKET: ${env.S3_STORAGE_SEARCH_BUCKET}
+    ports:
+      - published: auto
+        target: 3210
+      - published: auto
+        target: 3211
+    health:
+      command: ["curl", "-sf", "http://127.0.0.1:3210/version"]
+      timeout_seconds: 90
+
+  convex-dashboard:
+    image: ghcr.io/get-convex/convex-dashboard:latest
+    pull: if_missing
+    phase: backend
+    hosts: [p3]
+    environment:
+      PORT: "3211"
+      CONVEX_CLOUD_ORIGIN: https://api.humanist.design
+      NEXT_PUBLIC_DEPLOYMENT_URL: https://api.humanist.design
+      CONVEX_SITE_ORIGIN: https://api.humanist.design
+    ports:
+      - published: auto
+        target: 3211
+    health:
+      command: ["node", "-e", "fetch('http://127.0.0.1:3211/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      timeout_seconds: 90
+
+  web:
+    image: humanist-design-web:${release}
+    build: web
+    phase: frontend
+    hosts: [p3]
+    ports:
+      - published: auto
+        target: 80
+    health:
+      command: ["wget", "-q", "--spider", "http://127.0.0.1/"]
+      timeout_seconds: 60
+
+route_files:
+  - source: deploy/caddy/humanist.caddy.tmpl
+    host: p3
+    dest_name: humanist-design.caddy
+
+hooks:
+  after_backend_healthy:
+    - name: ensure minio buckets
+      run: ["bash", "scripts/ensure-minio-buckets.sh", "--prod"]
+      timeout_seconds: 120
+      env:
+        source: .env.prod
+        required:
+          - MINIO_ROOT_USER
+          - MINIO_ROOT_PASSWORD
+          - S3_STORAGE_EXPORTS_BUCKET
+          - S3_STORAGE_SNAPSHOT_IMPORTS_BUCKET
+          - S3_STORAGE_MODULES_BUCKET
+          - S3_STORAGE_FILES_BUCKET
+          - S3_STORAGE_SEARCH_BUCKET
+    - name: refresh convex admin key
+      run: ["bash", "scripts/refresh-convex-admin-key.sh", "--prod"]
+      timeout_seconds: 60
+      env:
+        source: .env.prod
+        required:
+          - CONVEX_SELF_HOSTED_URL
+          - SITE_URL
+          - BETTER_AUTH_SECRET
+          - SCALEWAY_PROJECT_ID
+          - SCALEWAY_SECRET_KEY
+          - INSTANCE_SECRET
+    - name: push convex env
+      run: ["bash", "scripts/push-env-to-convex.sh", "--prod"]
+      timeout_seconds: 180
+      env:
+        source: .env.prod
+        required:
+          - CONVEX_SELF_HOSTED_URL
+    - name: sync convex functions
+      run: ["npx", "convex", "dev", "--once", "--env-file", ".env.prod"]
+      timeout_seconds: 300
+      env:
+        source: .env.prod
+        required:
+          - CONVEX_SELF_HOSTED_URL
+
+checks:
+  smoke:
+    - name: frontend
+      url: https://humanist.design/
+      expect_status: 200
+    - name: www redirect
+      url: https://www.humanist.design/
+      expect_status: 301
+      follow_redirects: false
+    - name: convex version
+      url: https://api.humanist.design/version
+      expect_status: 200
+    - name: dashboard
+      url: https://dash.humanist.design/
+      expect_status: 200
+    - name: convex http action
+      url: https://api.humanist.design/smoke
+      expect_status: 200
+    - name: convex query
+      command: ["npx", "convex", "run", "smoke:ping", "--env-file", ".env.prod"]
+      timeout_seconds: 60
+      env:
+        source: .env.prod
+        required:
+          - CONVEX_SELF_HOSTED_URL
+    - name: landing page browser
+      command: ["node", "scripts/smoke-landing-page.mjs", "--prod"]
+      timeout_seconds: 60
+      env:
+        source: .env.prod
+        required:
+          - VITE_SITE_URL

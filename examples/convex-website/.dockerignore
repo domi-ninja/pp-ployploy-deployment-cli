@@ -1,0 +1,15 @@
+node_modules
+dist
+.deploy
+.git
+.claude
+.claude-docker
+.cursor
+.env*
+*.local
+*.log
+convex-overview.json
+convex-overview.cjs
+convex-exports.json
+site-config.generated.json
+

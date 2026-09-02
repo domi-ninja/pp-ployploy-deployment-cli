@@ -1,0 +1,17 @@
+tmp
+.deploy/
+*/uploads
+.env
+*.txt
+node_modules
+data.db
+frontend/assets/style.css
+*_templ.go
+bin/app
+.cursor/rules
+.cursor
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+.opencodeignore
+.cursorignore

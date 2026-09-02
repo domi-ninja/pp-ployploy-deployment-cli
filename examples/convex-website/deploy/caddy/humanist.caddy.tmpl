@@ -1,0 +1,42 @@
+www.humanist.design {
+	redir https://humanist.design{uri} permanent
+}
+
+api.humanist.design {
+	route {
+		@options method OPTIONS
+		handle @options {
+			header Access-Control-Allow-Origin {header.Origin}
+			header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+			header Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie, Set-Cookie, better-auth-cookie, Convex-Client"
+			header Access-Control-Allow-Credentials true
+			header Access-Control-Max-Age 86400
+			respond 204
+		}
+
+		@websocket {
+			header Connection *Upgrade*
+			header Upgrade websocket
+		}
+		handle @websocket {
+			reverse_proxy 127.0.0.1:${service.convex-backend.port.3210}
+		}
+
+		@http_actions path /api/auth/* /.well-known/* /smoke
+		handle @http_actions {
+			reverse_proxy 127.0.0.1:${service.convex-backend.port.3211}
+		}
+
+		handle {
+			reverse_proxy 127.0.0.1:${service.convex-backend.port.3210}
+		}
+	}
+}
+
+dash.humanist.design {
+	reverse_proxy 127.0.0.1:${service.convex-dashboard.port.3211}
+}
+
+humanist.design {
+	reverse_proxy 127.0.0.1:${service.web.port.80}
+}

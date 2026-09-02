@@ -1,0 +1,8 @@
+.deploy
+.git
+.env
+bin
+data.db
+node_modules
+tmp
+*/uploads

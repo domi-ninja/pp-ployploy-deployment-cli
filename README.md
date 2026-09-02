@@ -12,6 +12,7 @@ The important boundary is that Ansible prepares the host, while `pp` deploys app
 ```text
 cmd/deploy/                  Go entrypoint for the `pp` deploy CLI
 internal/deploy/             `pp` config parsing, planning, rendering, transfer, apply, status, rollback
+examples/                    Deployment config snapshots for common application shapes
 infra/ansible/               Production server provisioning playbooks and roles
 deployment-*.md              Design notes for the deployment system
 deploy-cli.md                Current CLI behavior
@@ -96,6 +97,8 @@ go run ./cmd/deploy deploy
 go run ./cmd/deploy status
 go run ./cmd/deploy rollback
 ```
+
+See [`examples/`](examples/) for simple website, self-hosted Convex, and stateful Go website configurations taken from working sibling projects.
 
 The normal path is config-driven:
 
