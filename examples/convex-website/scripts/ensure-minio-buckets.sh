@@ -3,8 +3,8 @@
 set -euo pipefail
 
 ENV_FILE="${ENV_FILE:-.env.local}"
-SSH_TARGET="${PP_HOST:-deploy@p3.domi.ninja}"
-PROJECT="${PP_PROJECT:-humanist-design}"
+SSH_TARGET="${PP_HOST:-deploy@example.com}"
+PROJECT="${PP_PROJECT:-convex-website}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

@@ -10,7 +10,7 @@ RUN pnpm config set dangerouslyAllowAllBuilds true \
 
 COPY . .
 
-ARG SITE_URL=https://blog.domi.ninja
+ARG SITE_URL=https://simple.example.com
 ENV SITE_URL=${SITE_URL}
 
 RUN pnpm build

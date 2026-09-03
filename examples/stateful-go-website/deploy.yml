@@ -1,24 +1,24 @@
 version: 1
 
 project:
-  name: gotths-example
+  name: stateful-go-website
   environment: prod
 
 build:
   context: .
   dockerfile: Dockerfile
   tags:
-    - "gotths-example:${git_sha}"
+    - "stateful-go-website:${git_sha}"
 
 hosts:
-  p3:
-    ssh: deploy@167.233.42.13
+  server:
+    ssh: deploy@example.com
     roles: [web]
 
 services:
   web:
-    image: "gotths-example:${git_sha}"
-    hosts: [p3]
+    image: "stateful-go-website:${git_sha}"
+    hosts: [server]
     env:
       source: ".env"
       required: ["JWT_SECRET"]
@@ -26,16 +26,16 @@ services:
       - published: auto
         target: 5000
     volumes:
-      - name: gotths-data
+      - name: stateful-go-website-data
         target: /data
     health:
       command: ["wget", "-q", "-O", "/dev/null", "http://127.0.0.1:5000/health"]
       timeout_seconds: 60
 
 routes:
-  - host: gotths.vandalize.site
+  - host: stateful.example.com
     service: web
 
 volumes:
-  gotths-data:
+  stateful-go-website-data:
     driver: local

@@ -1,8 +1,8 @@
-www.humanist.design {
-	redir https://humanist.design{uri} permanent
+www.convex.example.com {
+	redir https://convex.example.com{uri} permanent
 }
 
-api.humanist.design {
+api.convex.example.com {
 	route {
 		@options method OPTIONS
 		handle @options {
@@ -33,10 +33,10 @@ api.humanist.design {
 	}
 }
 
-dash.humanist.design {
+dashboard.convex.example.com {
 	reverse_proxy 127.0.0.1:${service.convex-dashboard.port.3211}
 }
 
-humanist.design {
+convex.example.com {
 	reverse_proxy 127.0.0.1:${service.web.port.80}
 }

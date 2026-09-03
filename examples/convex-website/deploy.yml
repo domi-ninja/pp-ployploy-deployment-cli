@@ -1,7 +1,7 @@
 version: 1
 
 project:
-  name: humanist-design
+  name: convex-website
   environment: prod
 
 env:
@@ -35,15 +35,15 @@ builds:
     dockerfile: Dockerfile
     target: runtime
     tags:
-      - humanist-design-web:${release}
+      - convex-website-web:${release}
     args:
       VITE_SITE_URL: ${env.VITE_SITE_URL}
       VITE_CONVEX_URL: ${env.VITE_CONVEX_URL}
       VITE_CONVEX_SITE_URL: ${env.VITE_CONVEX_SITE_URL}
 
 hosts:
-  p3:
-    ssh: deploy@p3.domi.ninja
+  server:
+    ssh: deploy@example.com
     roles: [web, convex]
 
 services:
@@ -51,7 +51,7 @@ services:
     image: postgres:16-alpine
     pull: if_missing
     phase: infra
-    hosts: [p3]
+    hosts: [server]
     env:
       source: .env.prod
       required:
@@ -63,7 +63,7 @@ services:
       POSTGRES_USER: ${env.POSTGRES_USER}
       POSTGRES_PASSWORD: ${env.POSTGRES_PASSWORD}
     volumes:
-      - source: /data/pp/humanist-design/postgres
+      - source: /data/pp/convex-website/postgres
         target: /var/lib/postgresql/data
         type: bind
     health:
@@ -74,7 +74,7 @@ services:
     image: minio/minio:latest
     pull: if_missing
     phase: infra
-    hosts: [p3]
+    hosts: [server]
     command: ["server", "/data", "--console-address", ":9001"]
     env:
       source: .env.prod
@@ -85,7 +85,7 @@ services:
       MINIO_ROOT_USER: ${env.MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${env.MINIO_ROOT_PASSWORD}
     volumes:
-      - source: /data/pp/humanist-design/s3
+      - source: /data/pp/convex-website/s3
         target: /data
         type: bind
     ports:
@@ -99,7 +99,7 @@ services:
     image: ghcr.io/get-convex/convex-backend:latest
     pull: if_missing
     phase: backend
-    hosts: [p3]
+    hosts: [server]
     env:
       source: .env.prod
       required:
@@ -118,10 +118,10 @@ services:
     environment:
       INSTANCE_NAME: ${env.INSTANCE_NAME}
       INSTANCE_SECRET: ${env.INSTANCE_SECRET}
-      CONVEX_CLOUD_ORIGIN: https://api.humanist.design
-      NEXT_PUBLIC_DEPLOYMENT_URL: https://api.humanist.design
-      CONVEX_SITE_ORIGIN: https://api.humanist.design
-      SITE_URL: https://humanist.design
+      CONVEX_CLOUD_ORIGIN: https://api.convex.example.com
+      NEXT_PUBLIC_DEPLOYMENT_URL: https://api.convex.example.com
+      CONVEX_SITE_ORIGIN: https://api.convex.example.com
+      SITE_URL: https://convex.example.com
       POSTGRES_URL: ${env.POSTGRES_URL}
       DATABASE_URL: ${env.DATABASE_URL}
       DO_NOT_REQUIRE_SSL: "1"
@@ -150,12 +150,12 @@ services:
     image: ghcr.io/get-convex/convex-dashboard:latest
     pull: if_missing
     phase: backend
-    hosts: [p3]
+    hosts: [server]
     environment:
       PORT: "3211"
-      CONVEX_CLOUD_ORIGIN: https://api.humanist.design
-      NEXT_PUBLIC_DEPLOYMENT_URL: https://api.humanist.design
-      CONVEX_SITE_ORIGIN: https://api.humanist.design
+      CONVEX_CLOUD_ORIGIN: https://api.convex.example.com
+      NEXT_PUBLIC_DEPLOYMENT_URL: https://api.convex.example.com
+      CONVEX_SITE_ORIGIN: https://api.convex.example.com
     ports:
       - published: auto
         target: 3211
@@ -164,10 +164,10 @@ services:
       timeout_seconds: 90
 
   web:
-    image: humanist-design-web:${release}
+    image: convex-website-web:${release}
     build: web
     phase: frontend
-    hosts: [p3]
+    hosts: [server]
     ports:
       - published: auto
         target: 80
@@ -176,9 +176,9 @@ services:
       timeout_seconds: 60
 
 route_files:
-  - source: deploy/caddy/humanist.caddy.tmpl
-    host: p3
-    dest_name: humanist-design.caddy
+  - source: deploy/caddy/convex-website.caddy.tmpl
+    host: server
+    dest_name: convex-website.caddy
 
 hooks:
   after_backend_healthy:
@@ -225,20 +225,20 @@ hooks:
 checks:
   smoke:
     - name: frontend
-      url: https://humanist.design/
+      url: https://convex.example.com/
       expect_status: 200
     - name: www redirect
-      url: https://www.humanist.design/
+      url: https://www.convex.example.com/
       expect_status: 301
       follow_redirects: false
     - name: convex version
-      url: https://api.humanist.design/version
+      url: https://api.convex.example.com/version
       expect_status: 200
     - name: dashboard
-      url: https://dash.humanist.design/
+      url: https://dashboard.convex.example.com/
       expect_status: 200
     - name: convex http action
-      url: https://api.humanist.design/smoke
+      url: https://api.convex.example.com/smoke
       expect_status: 200
     - name: convex query
       command: ["npx", "convex", "run", "smoke:ping", "--env-file", ".env.prod"]

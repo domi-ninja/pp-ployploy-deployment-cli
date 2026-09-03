@@ -40,31 +40,31 @@ set_if_missing() {
   fi
 }
 
-set_if_missing VITE_SITE_URL "https://humanist.design"
-set_if_missing VITE_CONVEX_URL "https://api.humanist.design"
-set_if_missing VITE_CONVEX_SITE_URL "https://api.humanist.design"
-set_if_missing SITE_URL "https://humanist.design"
-set_if_missing CONVEX_SELF_HOSTED_URL "https://api.humanist.design"
+set_if_missing VITE_SITE_URL "https://convex.example.com"
+set_if_missing VITE_CONVEX_URL "https://api.convex.example.com"
+set_if_missing VITE_CONVEX_SITE_URL "https://api.convex.example.com"
+set_if_missing SITE_URL "https://convex.example.com"
+set_if_missing CONVEX_SELF_HOSTED_URL "https://api.convex.example.com"
 
-set_if_missing INSTANCE_NAME "api.humanist.design"
+set_if_missing INSTANCE_NAME "api.convex.example.com"
 set_if_missing INSTANCE_SECRET "$(random_hex)"
 
 set_if_missing POSTGRES_DB "$(get_env INSTANCE_NAME)"
-set_if_missing POSTGRES_USER "humanist"
+set_if_missing POSTGRES_USER "convex_website"
 set_if_missing POSTGRES_PASSWORD "$(random_b64)"
 set_env POSTGRES_URL "postgres://$(get_env POSTGRES_USER):$(get_env POSTGRES_PASSWORD)@postgres:5432?sslmode=disable"
 set_env DATABASE_URL "postgres://$(get_env POSTGRES_USER):$(get_env POSTGRES_PASSWORD)@postgres:5432/$(get_env POSTGRES_DB)?sslmode=disable"
 
-set_if_missing MINIO_ROOT_USER "humanist-minio"
+set_if_missing MINIO_ROOT_USER "convex-website-minio"
 set_if_missing MINIO_ROOT_PASSWORD "$(random_b64)"
 set_env AWS_ACCESS_KEY_ID "$(get_env MINIO_ROOT_USER)"
 set_env AWS_SECRET_ACCESS_KEY "$(get_env MINIO_ROOT_PASSWORD)"
 
-set_if_missing S3_STORAGE_EXPORTS_BUCKET "humanist-prod-convex-exports"
-set_if_missing S3_STORAGE_SNAPSHOT_IMPORTS_BUCKET "humanist-prod-convex-snapshot-imports"
-set_if_missing S3_STORAGE_MODULES_BUCKET "humanist-prod-convex-modules"
-set_if_missing S3_STORAGE_FILES_BUCKET "humanist-prod-convex-files"
-set_if_missing S3_STORAGE_SEARCH_BUCKET "humanist-prod-convex-search"
+set_if_missing S3_STORAGE_EXPORTS_BUCKET "convex-website-prod-exports"
+set_if_missing S3_STORAGE_SNAPSHOT_IMPORTS_BUCKET "convex-website-prod-snapshot-imports"
+set_if_missing S3_STORAGE_MODULES_BUCKET "convex-website-prod-modules"
+set_if_missing S3_STORAGE_FILES_BUCKET "convex-website-prod-files"
+set_if_missing S3_STORAGE_SEARCH_BUCKET "convex-website-prod-search"
 set_if_missing AWS_S3_DISABLE_SSE "true"
 
 echo "Wrote production deploy values to $ENV_FILE"
