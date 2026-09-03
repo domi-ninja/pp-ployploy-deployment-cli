@@ -98,7 +98,7 @@ go run ./cmd/deploy status
 go run ./cmd/deploy rollback
 ```
 
-See [`examples/`](examples/) for simple website, self-hosted Convex, and stateful Go website configurations taken from working sibling projects.
+See [`examples/`](examples/) for simple website and stateful Go configurations, plus a more complex setup for running Convex in self-hosted mode.
 
 The normal path is config-driven:
 

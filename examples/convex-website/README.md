@@ -1,6 +1,8 @@
 # Convex website
 
-Use this example when you want to self-host a Convex application on one Docker server. It deploys the website, Convex backend and dashboard, Postgres, and MinIO. The hooks create the object-storage buckets, refresh the Convex admin key, push application environment variables, and sync the Convex functions.
+Use this example when you want to self-host a Convex application on one Docker server. Convex is handy for side projects because it combines a database, reactive queries, mutations, and backend functions. This example keeps those conveniences while running the services on your own server.
+
+The deployment includes the website, Convex backend and dashboard, Postgres, and MinIO. The hooks create the object-storage buckets, refresh the Convex admin key, push application environment variables, and sync the Convex functions.
 
 The example contains:
 
@@ -16,4 +18,4 @@ Copy the files into the application repository, replace `deploy@example.com` and
 bash scripts/bootstrap-prod-env.sh .env.prod
 ```
 
-Add the application-specific secrets and credentials listed in `.env.local.example`. Keep `.env.prod` out of Git. Run `pp plan` before the first `pp deploy`, since this example has more moving parts than most side projects deserve.
+Add the application-specific secrets and credentials listed in `.env.local.example`. Keep `.env.prod` out of Git. Run `pp plan` before the first `pp deploy`, since self-hosted Convex has more services and required environment values than the single-container examples.
